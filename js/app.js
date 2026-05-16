@@ -50,14 +50,8 @@ const App = {
       if (stored) {
         this.projects = JSON.parse(stored);
       } else {
-        // First load for this user
-        const email = this._currentEmail().toLowerCase();
-        if (email === this.ADMIN_EMAIL) {
-          this.projects = DEMO_PROJECTS;
-        } else {
-          this.projects = [];
-        }
-        this._saveProjectsSync();
+        // localStorage empty — _loadVersionsAsync will pull authoritative data from Supabase
+        this.projects = [];
       }
     } catch(e) {
       console.error('[App] _loadProjectsSync error:', e);
@@ -68,33 +62,45 @@ const App = {
   async _loadVersionsAsync() {
     try {
       const email = this._currentEmail();
-      const idbVersions = await DataStore.loadVersions(email);
-      if (idbVersions && idbVersions.length > 0) {
-        this.scheduleVersions = idbVersions;
-        console.log('[App] Loaded', idbVersions.length, 'versions from IndexedDB');
-        return;
-      }
-      // Fallback: try old localStorage key
-      const lsKey = this._storageKey('versions');
-      const lsData = localStorage.getItem(lsKey);
-      if (lsData) {
-        this.scheduleVersions = JSON.parse(lsData);
-        console.log('[App] Migrated', this.scheduleVersions.length, 'versions from localStorage → IndexedDB');
-        // Migrate to IndexedDB immediately
-        await DataStore.saveVersions(email, this.scheduleVersions);
+
+      // Load versions — DataStore tries Supabase first, then IDB, then localStorage
+      const versions = await DataStore.loadVersions(email);
+      if (versions && versions.length > 0) {
+        this.scheduleVersions = versions;
+        console.log('[App] Loaded', versions.length, 'versions');
       } else {
-        // First load — seed demo versions for admin
-        const email2 = this._currentEmail().toLowerCase();
-        if (email2 === this.ADMIN_EMAIL && typeof DEMO_SCHEDULE_VERSIONS !== 'undefined') {
-          this.scheduleVersions = DEMO_SCHEDULE_VERSIONS;
+        // Fallback: try old localStorage key
+        const lsKey = this._storageKey('versions');
+        const lsData = localStorage.getItem(lsKey);
+        if (lsData) {
+          this.scheduleVersions = JSON.parse(lsData);
+          console.log('[App] Migrated', this.scheduleVersions.length, 'versions from localStorage → Supabase');
           await DataStore.saveVersions(email, this.scheduleVersions);
         } else {
           this.scheduleVersions = [];
         }
       }
+
+      // Refresh projects from Supabase for cross-device sync
+      const sbProjects = await DataStore.loadProjects(email);
+      if (sbProjects && sbProjects.length > 0) {
+        this.projects = sbProjects;
+        try { localStorage.setItem(this._storageKey('projects'), JSON.stringify(sbProjects)); } catch(e) {}
+        console.log('[App] Loaded', sbProjects.length, 'projects from Supabase');
+      } else if (this.projects.length === 0) {
+        // Truly first load — seed demo data for admin, empty for everyone else
+        const emailLower = email.toLowerCase();
+        if (emailLower === this.ADMIN_EMAIL) {
+          this.projects = typeof DEMO_PROJECTS !== 'undefined' ? DEMO_PROJECTS : [];
+          if (typeof DEMO_SCHEDULE_VERSIONS !== 'undefined' && this.scheduleVersions.length === 0) {
+            this.scheduleVersions = DEMO_SCHEDULE_VERSIONS;
+          }
+          if (this.projects.length > 0) await DataStore.saveProjects(email, this.projects);
+          if (this.scheduleVersions.length > 0) await DataStore.saveVersions(email, this.scheduleVersions);
+        }
+      }
     } catch(e) {
       console.error('[App] _loadVersionsAsync error:', e);
-      // Last-resort fallback
       try {
         const lsData = localStorage.getItem(this._storageKey('versions'));
         this.scheduleVersions = lsData ? JSON.parse(lsData) : [];

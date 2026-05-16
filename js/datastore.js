@@ -1,12 +1,14 @@
-// datastore.js — IndexedDB-backed data store for Construct Check
-// Handles version data that can exceed localStorage limits
-// Falls back to localStorage if IndexedDB is unavailable
+// datastore.js — Supabase-backed data store for Construct Check
+// Primary store: Supabase PostgreSQL (cross-device, authoritative)
+// Local cache: IndexedDB + localStorage (fast render, offline fallback)
 
 const DataStore = {
   DB_NAME: 'construct_check_db',
   DB_VERSION: 2,
   _db: null,
   _ready: false,
+
+  // ─── IndexedDB (local cache) ──────────────────────────────────
 
   async open() {
     if (this._db && this._ready) return this._db;
@@ -35,86 +37,99 @@ const DataStore = {
     });
   },
 
-  // Generic put — stores a keyed record in IndexedDB
-  async put(key, value) {
+  async _idbPut(key, value) {
     try {
       const db = await this.open();
-      return new Promise((resolve, reject) => {
+      return new Promise((resolve) => {
         const tx = db.transaction('user_data', 'readwrite');
         const store = tx.objectStore('user_data');
         store.put({ key, value, updatedAt: Date.now() });
-        tx.oncomplete = () => {
-          console.log(`[DataStore] Saved "${key}" (${JSON.stringify(value).length} bytes)`);
-          resolve(true);
-        };
-        tx.onerror = (e) => {
-          console.error(`[DataStore] Save failed for "${key}":`, e.target?.error);
-          reject(e.target?.error);
-        };
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
       });
     } catch (err) {
-      console.error(`[DataStore] put("${key}") failed:`, err);
-      // Fallback: try localStorage
-      try {
-        localStorage.setItem('ds_' + key, JSON.stringify(value));
-        console.log(`[DataStore] Saved to localStorage fallback: "${key}"`);
-        return true;
-      } catch (lsErr) {
-        console.error(`[DataStore] localStorage fallback also failed:`, lsErr);
-        return false;
-      }
+      return false;
     }
   },
 
-  // Generic get — retrieves a keyed record from IndexedDB
-  async get(key) {
+  async _idbGet(key) {
     try {
       const db = await this.open();
       return new Promise((resolve) => {
         const tx = db.transaction('user_data', 'readonly');
         const store = tx.objectStore('user_data');
         const req = store.get(key);
-        req.onsuccess = () => {
-          if (req.result && req.result.value !== undefined) {
-            resolve(req.result.value);
-          } else {
-            // Try localStorage fallback
-            const ls = localStorage.getItem('ds_' + key);
-            resolve(ls ? JSON.parse(ls) : null);
-          }
-        };
-        req.onerror = () => {
-          const ls = localStorage.getItem('ds_' + key);
-          resolve(ls ? JSON.parse(ls) : null);
-        };
+        req.onsuccess = () => resolve(req.result?.value ?? null);
+        req.onerror = () => resolve(null);
       });
     } catch (err) {
-      // Fallback to localStorage
-      try {
-        const ls = localStorage.getItem('ds_' + key);
-        return ls ? JSON.parse(ls) : null;
-      } catch (e) {
-        return null;
-      }
+      return null;
     }
   },
 
-  // ─── Convenience methods for the app ────────────────────────
+  // ─── Supabase helpers ─────────────────────────────────────────
+
+  async _getSbUserId() {
+    try {
+      if (!window.CC_SB) return null;
+      const { data: { session } } = await CC_SB.auth.getSession();
+      return session?.user?.id || null;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  async _sbUpsert(fields) {
+    try {
+      const userId = await this._getSbUserId();
+      if (!userId || !window.CC_SB) return false;
+      const { error } = await CC_SB.from('user_data')
+        .upsert({ user_id: userId, ...fields, updated_at: new Date().toISOString() },
+                 { onConflict: 'user_id' });
+      if (error) { console.error('[DataStore] Supabase upsert error:', error.message); return false; }
+      return true;
+    } catch (e) {
+      console.error('[DataStore] _sbUpsert exception:', e);
+      return false;
+    }
+  },
+
+  async _sbSelect(column) {
+    try {
+      const userId = await this._getSbUserId();
+      if (!userId || !window.CC_SB) return null;
+      const { data, error } = await CC_SB.from('user_data')
+        .select(column)
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (error) { console.error('[DataStore] Supabase select error:', error.message); return null; }
+      return data ? data[column] : null;
+    } catch (e) {
+      console.error('[DataStore] _sbSelect exception:', e);
+      return null;
+    }
+  },
+
+  // ─── Local key helper ─────────────────────────────────────────
 
   _userKey(email, type) {
     return `${type}_${(email || 'guest').toLowerCase()}`;
   },
 
+  // ─── Projects ─────────────────────────────────────────────────
+
   async saveProjects(email, projects) {
-    // Projects are small — save to both localStorage (sync render) and IDB (backup)
-    try {
-      localStorage.setItem(`cc_projects_${email}`, JSON.stringify(projects));
-    } catch (e) { console.error('[DataStore] projects localStorage fail:', e); }
-    return this.put(this._userKey(email, 'projects'), projects);
+    // 1. localStorage cache — sync render on next load
+    try { localStorage.setItem(`cc_projects_${email}`, JSON.stringify(projects)); } catch (e) {}
+    // 2. IndexedDB cache
+    this._idbPut(this._userKey(email, 'projects'), projects).catch(() => {});
+    // 3. Supabase — authoritative
+    const saved = await this._sbUpsert({ projects });
+    if (saved) console.log(`[DataStore] Saved ${projects.length} projects to Supabase`);
+    return true;
   },
 
   loadProjectsSync(email) {
-    // Synchronous read from localStorage for initial render
     try {
       const ls = localStorage.getItem(`cc_projects_${email}`);
       return ls ? JSON.parse(ls) : null;
@@ -122,33 +137,58 @@ const DataStore = {
   },
 
   async loadProjects(email) {
-    // Async read — tries IDB first, falls back to localStorage
-    const idbData = await this.get(this._userKey(email, 'projects'));
-    if (idbData) return idbData;
+    // 1. Supabase — authoritative, cross-device
+    const sbData = await this._sbSelect('projects');
+    if (sbData && sbData.length > 0) {
+      console.log(`[DataStore] Loaded ${sbData.length} projects from Supabase`);
+      // Refresh caches
+      try { localStorage.setItem(`cc_projects_${email}`, JSON.stringify(sbData)); } catch (e) {}
+      this._idbPut(this._userKey(email, 'projects'), sbData).catch(() => {});
+      return sbData;
+    }
+    // 2. IndexedDB
+    const idbData = await this._idbGet(this._userKey(email, 'projects'));
+    if (idbData && idbData.length > 0) return idbData;
+    // 3. localStorage
     return this.loadProjectsSync(email);
   },
 
+  // ─── Schedule Versions ────────────────────────────────────────
+
   async saveVersions(email, versions) {
-    // Versions can be large — primary store is IndexedDB
-    const saved = await this.put(this._userKey(email, 'versions'), versions);
-    // Also try localStorage as a backup (may fail for large data, that's OK)
-    try {
-      localStorage.setItem(`cc_versions_${email}`, JSON.stringify(versions));
-    } catch (e) {
-      console.warn('[DataStore] versions localStorage backup failed (expected for large data)');
-    }
-    return saved;
+    // 1. localStorage backup (may fail for large data — that's OK)
+    try { localStorage.setItem(`cc_versions_${email}`, JSON.stringify(versions)); } catch (e) {}
+    // 2. IndexedDB cache
+    this._idbPut(this._userKey(email, 'versions'), versions).catch(() => {});
+    // 3. Supabase — authoritative
+    const saved = await this._sbUpsert({ versions });
+    if (saved) console.log(`[DataStore] Saved ${versions.length} versions to Supabase`);
+    return true;
   },
 
   async loadVersions(email) {
-    const idbData = await this.get(this._userKey(email, 'versions'));
-    if (idbData) return idbData;
-    // Fallback to localStorage
+    // 1. Supabase — authoritative, cross-device
+    const sbData = await this._sbSelect('versions');
+    if (sbData && sbData.length > 0) {
+      console.log(`[DataStore] Loaded ${sbData.length} versions from Supabase`);
+      // Refresh caches
+      this._idbPut(this._userKey(email, 'versions'), sbData).catch(() => {});
+      return sbData;
+    }
+    // 2. IndexedDB
+    const idbData = await this._idbGet(this._userKey(email, 'versions'));
+    if (idbData && idbData.length > 0) return idbData;
+    // 3. localStorage
     try {
       const ls = localStorage.getItem(`cc_versions_${email}`);
       return ls ? JSON.parse(ls) : null;
     } catch (e) { return null; }
-  }
+  },
+
+  // ─── Legacy aliases (used by old code paths) ──────────────────
+
+  async put(key, value) { return this._idbPut(key, value); },
+  async get(key) { return this._idbGet(key); },
 };
 
 window.DataStore = DataStore;

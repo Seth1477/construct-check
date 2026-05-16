@@ -1,32 +1,18 @@
 /**
- * auth.js — Construct Check authentication
+ * auth.js — Construct Check authentication (Supabase)
  *
- * Dual-mode: uses Firebase Auth when firebase-config.js has real keys,
- * falls back to localStorage when Firebase is not yet configured.
- * Everything works in localStorage mode — Firebase just adds cross-device sync.
+ * Uses Supabase Auth when CC_SB is available (supabase-config.js loaded),
+ * falls back to localStorage when Supabase is not configured.
+ * Public API is identical to the previous Firebase version.
  */
 (function () {
   'use strict';
 
-  // ── Firebase detection ──────────────────────────────────────────
-  const FB_OK = (function () {
-    try {
-      return (
-        typeof firebase !== 'undefined' &&
-        typeof window.CC_FIREBASE_CONFIG !== 'undefined' &&
-        window.CC_FIREBASE_CONFIG.apiKey &&
-        !window.CC_FIREBASE_CONFIG.apiKey.startsWith('REPLACE')
-      );
-    } catch (e) { return false; }
+  // ── Supabase detection ──────────────────────────────────────────
+  const SB_OK = (function () {
+    try { return typeof window.CC_SB !== 'undefined' && window.CC_SB !== null; }
+    catch (e) { return false; }
   })();
-
-  let _fbAuth = null;
-  if (FB_OK) {
-    try {
-      if (!firebase.apps.length) firebase.initializeApp(window.CC_FIREBASE_CONFIG);
-      _fbAuth = firebase.auth();
-    } catch (e) { console.error('[Auth] Firebase init failed:', e); }
-  }
 
   // ── Session state ───────────────────────────────────────────────
   let _session = null;        // { name, email, createdAt }
@@ -44,17 +30,18 @@
     _readyCbs.length = 0;
   }
 
-  // ── LocalStorage helpers ────────────────────────────────────────
-  const LS = { USERS: 'cc_users', SESSION: 'cc_session', USAGE: 'cc_usage' };
-  const lsGet  = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
-  const lsSet  = (k, v) => localStorage.setItem(k, JSON.stringify(v));
-  const lsDel  = k => localStorage.removeItem(k);
-
-  function hashPw(pw) {
-    let h = 0;
-    for (let i = 0; i < pw.length; i++) h = (Math.imul(31, h) + pw.charCodeAt(i)) | 0;
-    return h.toString(36) + '_' + pw.length;
+  function _userFromSupabase(u) {
+    return {
+      name:      u.user_metadata?.name || u.email.split('@')[0],
+      email:     u.email,
+      createdAt: new Date(u.created_at).getTime(),
+    };
   }
+
+  // ── LocalStorage helpers ────────────────────────────────────────
+  const LS = { USAGE: 'cc_usage' };
+  const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
+  const lsSet = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 
   // ── Usage / plan helpers ────────────────────────────────────────
   const ADMIN_EMAILS = ['speterson1477@gmail.com'];
@@ -73,41 +60,39 @@
   }
 
   // ── Resolve initial session ─────────────────────────────────────
-  if (FB_OK && _fbAuth) {
-    _fbAuth.onAuthStateChanged(fbUser => {
-      if (fbUser) {
-        _setReady({
-          name:      fbUser.displayName || fbUser.email.split('@')[0],
-          email:     fbUser.email,
-          createdAt: new Date(fbUser.metadata.creationTime).getTime(),
-        });
+  if (SB_OK) {
+    // onAuthStateChange fires once on load with the current session (INITIAL_SESSION event)
+    CC_SB.auth.onAuthStateChange((event, session) => {
+      const user = session?.user ? _userFromSupabase(session.user) : null;
+      if (!_sessionReady) {
+        _setReady(user);
       } else {
-        _setReady(null);
+        _session = user;
+        // If user was signed out from another tab, redirect to login
+        if (!user && !_isPublicPage()) {
+          window.location.href = 'login.html';
+        }
       }
     });
   } else {
-    // localStorage mode — session is synchronously available
-    _setReady(lsGet(LS.SESSION));
+    // localStorage-only fallback
+    _setReady(lsGet('cc_session'));
+  }
+
+  function _isPublicPage() {
+    const path = window.location.pathname;
+    return path.includes('index.html') || path.includes('login.html') || path.endsWith('/');
   }
 
   // ── Public API ──────────────────────────────────────────────────
   const Auth = {
 
-    /** Returns current session synchronously (may be null briefly on first Firebase load) */
     currentUser() { return _session; },
 
-    /**
-     * Resolves once auth state is known (with or without a session).
-     * Safe to call at any point — resolves immediately if auth is already settled.
-     */
     whenReady() {
       return new Promise(resolve => _onReady(resolve));
     },
 
-    /**
-     * Returns a Promise that resolves with the session once auth state is known.
-     * On protected pages, redirects to login if unauthenticated.
-     */
     requireAuth() {
       return new Promise(resolve => {
         _onReady(session => {
@@ -121,105 +106,85 @@
       });
     },
 
-    /** Sign in — works with Firebase or localStorage */
     async login(email, password) {
       email = email.toLowerCase().trim();
-      if (FB_OK && _fbAuth) {
-        try {
-          await _fbAuth.signInWithEmailAndPassword(email, password);
-          return { ok: true };
-        } catch (err) {
-          return { ok: false, error: _fbErrMsg(err) };
-        }
+      if (SB_OK) {
+        const { data, error } = await CC_SB.auth.signInWithPassword({ email, password });
+        if (error) return { ok: false, error: _sbErrMsg(error) };
+        if (data.user) _session = _userFromSupabase(data.user);
+        return { ok: true };
       }
       // localStorage fallback
-      const users = lsGet(LS.USERS) || {};
+      const users = lsGet('cc_users') || {};
       const user  = users[email];
       if (!user) return { ok: false, error: 'No account found with that email.' };
-      if (user.passwordHash !== hashPw(password)) return { ok: false, error: 'Incorrect password.' };
+      if (user.passwordHash !== _hashPw(password)) return { ok: false, error: 'Incorrect password.' };
       const session = { name: user.name, email: user.email, createdAt: user.createdAt };
-      lsSet(LS.SESSION, session);
+      lsSet('cc_session', session);
       _session = session;
       return { ok: true };
     },
 
-    /** Register a new account */
     async register(name, email, password) {
       email = email.toLowerCase().trim();
-      if (FB_OK && _fbAuth) {
-        try {
-          const cred = await _fbAuth.createUserWithEmailAndPassword(email, password);
-          await cred.user.updateProfile({ displayName: name });
-          _session = { name, email, createdAt: Date.now() };
-          return { ok: true };
-        } catch (err) {
-          return { ok: false, error: _fbErrMsg(err) };
-        }
+      if (SB_OK) {
+        const { data, error } = await CC_SB.auth.signUp({
+          email,
+          password,
+          options: { data: { name } },
+        });
+        if (error) return { ok: false, error: _sbErrMsg(error) };
+        if (data.user) _session = _userFromSupabase(data.user);
+        return { ok: true };
       }
       // localStorage fallback
-      const users = lsGet(LS.USERS) || {};
+      const users = lsGet('cc_users') || {};
       if (users[email]) return { ok: false, error: 'An account with that email already exists.' };
       if (password.length < 6) return { ok: false, error: 'Password must be at least 6 characters.' };
-      users[email] = { name, email, passwordHash: hashPw(password), createdAt: Date.now() };
-      lsSet(LS.USERS, users);
+      users[email] = { name, email, passwordHash: _hashPw(password), createdAt: Date.now() };
+      lsSet('cc_users', users);
       const session = { name, email, createdAt: users[email].createdAt };
-      lsSet(LS.SESSION, session);
+      lsSet('cc_session', session);
       _session = session;
       return { ok: true };
     },
 
-    /** Sign out */
     logout() {
-      if (FB_OK && _fbAuth) {
-        _fbAuth.signOut().finally(() => { window.location.href = 'index.html'; });
+      if (SB_OK) {
+        CC_SB.auth.signOut().finally(() => { window.location.href = 'index.html'; });
       } else {
-        lsDel(LS.SESSION);
+        localStorage.removeItem('cc_session');
         _session = null;
         window.location.href = 'index.html';
       }
     },
 
-    /**
-     * Send a real password-reset email (Firebase mode) or reset inline (localStorage mode).
-     * Used by the "Forgot password?" flow on login.html.
-     */
     async sendPasswordResetEmail(email) {
       email = email.toLowerCase().trim();
-      if (FB_OK && _fbAuth) {
-        try {
-          await _fbAuth.sendPasswordResetEmail(email);
-          return { ok: true };
-        } catch (err) {
-          return { ok: false, error: _fbErrMsg(err) };
-        }
+      if (SB_OK) {
+        const { error } = await CC_SB.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin + '/login.html',
+        });
+        if (error) return { ok: false, error: _sbErrMsg(error) };
+        return { ok: true };
       }
-      return { ok: false, error: 'firebase_not_configured' };
+      return { ok: false, error: 'supabase_not_configured' };
     },
 
-    /**
-     * Reset password directly — used in account panel (logged-in user) and
-     * the inline reset form when Firebase is not configured.
-     */
     async resetPassword(email, newPassword) {
-      email = email.toLowerCase().trim();
-      if (FB_OK && _fbAuth) {
-        const fbUser = _fbAuth.currentUser;
-        if (!fbUser) return { ok: false, error: 'You must be signed in to change your password.' };
-        try {
-          await fbUser.updatePassword(newPassword);
-          return { ok: true };
-        } catch (err) {
-          if (err.code === 'auth/requires-recent-login')
-            return { ok: false, error: 'For security, please sign out and sign back in before changing your password.' };
-          return { ok: false, error: _fbErrMsg(err) };
-        }
+      if (SB_OK) {
+        if (newPassword.length < 6) return { ok: false, error: 'Password must be at least 6 characters.' };
+        const { error } = await CC_SB.auth.updateUser({ password: newPassword });
+        if (error) return { ok: false, error: _sbErrMsg(error) };
+        return { ok: true };
       }
       // localStorage fallback
-      const users = lsGet(LS.USERS) || {};
+      email = (email || '').toLowerCase().trim();
+      const users = lsGet('cc_users') || {};
       if (!users[email]) return { ok: false, error: 'No account found with that email address.' };
       if (newPassword.length < 6) return { ok: false, error: 'Password must be at least 6 characters.' };
-      users[email].passwordHash = hashPw(newPassword);
-      lsSet(LS.USERS, users);
+      users[email].passwordHash = _hashPw(newPassword);
+      lsSet('cc_users', users);
       return { ok: true };
     },
 
@@ -277,7 +242,6 @@
         el.textContent = `${usage.uploads} / ${usage.plan === 'pro' ? '∞' : usage.limit}`;
       });
 
-      // Sidebar user block → clickable
       const sidebarUser = document.querySelector('.sidebar-bottom .sidebar-user, .sidebar-user');
       if (sidebarUser && !sidebarUser.dataset.accountBound) {
         sidebarUser.dataset.accountBound = '1';
@@ -291,18 +255,26 @@
     },
   };
 
-  // ── Firebase error messages ─────────────────────────────────────
-  function _fbErrMsg(err) {
-    const map = {
-      'auth/user-not-found':      'No account found with that email.',
-      'auth/wrong-password':      'Incorrect password.',
-      'auth/email-already-in-use':'An account with that email already exists.',
-      'auth/weak-password':       'Password must be at least 6 characters.',
-      'auth/invalid-email':       'Invalid email address.',
-      'auth/too-many-requests':   'Too many attempts. Please try again later.',
-      'auth/network-request-failed': 'Network error. Check your connection and try again.',
-    };
-    return map[err.code] || err.message;
+  // ── Supabase error messages ─────────────────────────────────────
+  function _sbErrMsg(err) {
+    const msg = (err.message || '').toLowerCase();
+    if (msg.includes('invalid login') || msg.includes('invalid_credentials') || msg.includes('invalid credentials'))
+      return 'Incorrect email or password.';
+    if (msg.includes('already registered') || msg.includes('already been registered') || msg.includes('email_exists'))
+      return 'An account with that email already exists.';
+    if (msg.includes('password should be') || msg.includes('weak_password'))
+      return 'Password must be at least 6 characters.';
+    if (msg.includes('rate limit') || msg.includes('too many'))
+      return 'Too many attempts. Please try again later.';
+    if (msg.includes('network') || msg.includes('fetch'))
+      return 'Network error. Check your connection and try again.';
+    return err.message || 'An error occurred. Please try again.';
+  }
+
+  function _hashPw(pw) {
+    let h = 0;
+    for (let i = 0; i < pw.length; i++) h = (Math.imul(31, h) + pw.charCodeAt(i)) | 0;
+    return h.toString(36) + '_' + pw.length;
   }
 
   // ── Inject hover style for sidebar user block ───────────────────
@@ -342,7 +314,7 @@
     const initials = parts.length > 1
       ? parts[0][0].toUpperCase() + parts[parts.length - 1][0].toUpperCase()
       : user.name.slice(0, 2).toUpperCase();
-    const fbBadge = FB_OK
+    const syncBadge = SB_OK
       ? '<span style="background:#e8f5e9;color:#2e7d32;border-radius:5px;padding:2px 8px;font-size:10px;font-weight:700;margin-left:6px;">⚡ Cloud Sync ON</span>'
       : '<span style="background:#fff8e1;color:#f57f17;border-radius:5px;padding:2px 8px;font-size:10px;font-weight:700;margin-left:6px;">⚠ Local Storage Only</span>';
 
@@ -361,7 +333,7 @@
               <div style="font-size:13px;color:#94a3b8;">${user.email}</div>
               <div style="margin-top:6px;">
                 <span style="background:${planColor}22;color:${planColor};border:1px solid ${planColor}55;border-radius:6px;padding:2px 10px;font-size:11px;font-weight:700;text-transform:uppercase;">${planLabel}</span>
-                ${fbBadge}
+                ${syncBadge}
               </div>
             </div>
           </div>
@@ -385,7 +357,7 @@
             <div style="height:1px;background:#e2e8f0;"></div>
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <span style="font-size:13px;color:#64748b;font-weight:500;">Auth mode</span>
-              <span style="font-size:13px;font-weight:600;color:${FB_OK ? '#2e7d32' : '#f57f17'};">${FB_OK ? 'Firebase (cross-device)' : 'Local storage only'}</span>
+              <span style="font-size:13px;font-weight:600;color:${SB_OK ? '#2e7d32' : '#f57f17'};">${SB_OK ? 'Supabase (cross-device)' : 'Local storage only'}</span>
             </div>
           </div>
           <div>
@@ -439,8 +411,8 @@
     });
 
     document.getElementById('ccSavePw').addEventListener('click', async () => {
-      const pw   = document.getElementById('ccNewPw').value;
-      const pw2  = document.getElementById('ccConfirmPw').value;
+      const pw    = document.getElementById('ccNewPw').value;
+      const pw2   = document.getElementById('ccConfirmPw').value;
       const errEl = document.getElementById('ccPwError');
       const okEl  = document.getElementById('ccPwSuccess');
       errEl.style.display = 'none'; okEl.style.display = 'none';
@@ -458,7 +430,7 @@
     });
   }
 
-  // ── One-time migration ──────────────────────────────────────────
+  // ── One-time migration cleanup ──────────────────────────────────
   (function () {
     if (localStorage.getItem('sv_projects')) {
       localStorage.removeItem('sv_projects');
@@ -474,9 +446,10 @@
   })();
 
   // ── Expose globally ─────────────────────────────────────────────
-  window.CC       = window.CC || {};
-  window.CC.Auth  = Auth;
-  window.CC.FB_OK = FB_OK;
+  window.CC        = window.CC || {};
+  window.CC.Auth   = Auth;
+  window.CC.FB_OK  = SB_OK;  // kept for backward compat
+  window.CC.SB_OK  = SB_OK;
 
   window.CC.showPaywallModal = function () {
     const existing = document.getElementById('cc-paywall-modal');
