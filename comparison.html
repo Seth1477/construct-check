@@ -672,7 +672,112 @@ function renderNarrative() {
 }
 
 function exportComparison() {
-  App.showAlert('Comparison report export coming soon.', 'info');
+  const project      = App._resolveCurrentProject?.() || App.projects?.[0];
+  const projectName  = project?.name || 'Project';
+  const genDate      = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
+
+  const baselineSel  = document.getElementById('baselineSelect');
+  const currentSel   = document.getElementById('currentSelect');
+  const baselineLabel = baselineSel?.options[baselineSel.selectedIndex]?.text || 'Baseline';
+  const currentLabel  = currentSel?.options[currentSel.selectedIndex]?.text  || 'Current';
+
+  const narrative    = document.querySelector('.narrative-body')?.innerHTML || '<p>No narrative available.</p>';
+  const milestoneRows = document.querySelector('#milestoneChanges')?.innerHTML || '<tr><td colspan="5">No data</td></tr>';
+  const activityRows  = document.querySelector('#activityChanges')?.innerHTML  || '<tr><td colspan="6">No data</td></tr>';
+
+  const getVal = id => document.querySelector(`#${id} .stat-value`)?.textContent || '—';
+  const finishMov = getVal('finishMovement');
+  const cpSlip    = getVal('cpSlip');
+  const scoreChg  = getVal('scoreChange');
+  const negFloat  = getVal('negFloatDelta');
+
+  const win = window.open('', '_blank');
+  if (!win) { App.showAlert('Pop-up blocked — please allow pop-ups for this site.', 'error'); return; }
+  win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <title>Comparison Report — ${projectName}</title>
+  <style>
+    @page { margin:0.6in; size:letter portrait; }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'Segoe UI',Arial,sans-serif; color:#1e293b; font-size:10pt; line-height:1.5; }
+    .header { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2.5px solid #1e1b4b; padding-bottom:10pt; margin-bottom:14pt; }
+    .logo-wrap { display:flex; align-items:center; gap:8pt; }
+    .logo-img { height:28pt; }
+    .logo-text { font-size:18pt; font-weight:800; color:#1e1b4b; letter-spacing:-0.02em; }
+    .logo-text span { color:#7c6fe0; }
+    .logo-tag { font-size:8.5pt; color:#64748b; margin-top:2pt; }
+    .header-meta { text-align:right; }
+    .header-meta .proj { font-size:13pt; font-weight:700; }
+    .header-meta .sub { font-size:9pt; color:#64748b; margin-top:2pt; }
+    .summary-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8pt; margin-bottom:14pt; }
+    .stat-box { border:1px solid #e2e8f0; border-radius:5pt; padding:8pt 10pt; text-align:center; }
+    .stat-label { font-size:7.5pt; color:#64748b; text-transform:uppercase; font-weight:700; letter-spacing:0.05em; }
+    .stat-val { font-size:15pt; font-weight:800; color:#ef4444; margin-top:2pt; }
+    h2 { font-size:10pt; font-weight:700; color:#1e1b4b; text-transform:uppercase; letter-spacing:0.05em; border-bottom:1px solid #e2e8f0; padding-bottom:4pt; margin:14pt 0 8pt; }
+    p { margin-bottom:7pt; font-size:9.5pt; }
+    h4 { font-size:9.5pt; font-weight:700; margin:10pt 0 4pt; }
+    table { width:100%; border-collapse:collapse; font-size:8.5pt; margin-bottom:10pt; }
+    th { background:#f8fafc; font-weight:700; padding:5pt 7pt; text-align:left; border:1px solid #e2e8f0; }
+    td { padding:4pt 7pt; border:1px solid #e2e8f0; vertical-align:top; }
+    tr:nth-child(even) td { background:#f8fafc; }
+    .badge { display:inline-block; font-size:7pt; font-weight:700; padding:1pt 5pt; border-radius:3pt; background:#e2e8f0; }
+    .badge-critical { background:#fee2e2; color:#dc2626; }
+    .badge-success  { background:#dcfce7; color:#16a34a; }
+    .badge-high     { background:#ffedd5; color:#c2410c; }
+    .text-red  { color:#dc2626; }
+    .text-green{ color:#16a34a; }
+    .text-amber{ color:#d97706; }
+    .footer { margin-top:18pt; padding-top:7pt; border-top:1px solid #e2e8f0; font-size:8pt; color:#94a3b8; display:flex; justify-content:space-between; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div class="logo-wrap">
+        <img class="logo-img" src="${window.location.origin}/img/logo.svg" alt=""/>
+        <div class="logo-text">Construct<span>Check</span></div>
+      </div>
+      <div class="logo-tag">Schedule Comparison Report</div>
+    </div>
+    <div class="header-meta">
+      <div class="proj">${projectName}</div>
+      <div class="sub">${baselineLabel} &rarr; ${currentLabel}</div>
+      <div class="sub">Generated: ${genDate}</div>
+    </div>
+  </div>
+
+  <div class="summary-grid">
+    <div class="stat-box"><div class="stat-label">Finish Date Movement</div><div class="stat-val">${finishMov}</div></div>
+    <div class="stat-box"><div class="stat-label">Critical Path Slip</div><div class="stat-val">${cpSlip}</div></div>
+    <div class="stat-box"><div class="stat-label">Score Change</div><div class="stat-val" style="color:#d97706;">${scoreChg}</div></div>
+    <div class="stat-box"><div class="stat-label">Neg. Float Activities</div><div class="stat-val">${negFloat}</div></div>
+  </div>
+
+  <h2>Executive Summary</h2>
+  <div>${narrative}</div>
+
+  <h2>Milestone Changes</h2>
+  <table>
+    <thead><tr><th>Milestone</th><th>Prior Forecast</th><th>Current Forecast</th><th>Variance</th><th>Status</th></tr></thead>
+    <tbody>${milestoneRows}</tbody>
+  </table>
+
+  <h2>Activity Changes</h2>
+  <table>
+    <thead><tr><th>ID</th><th>Activity Name</th><th>Start Change</th><th>Finish Change</th><th>Finish Var.</th><th>Float Change</th></tr></thead>
+    <tbody>${activityRows}</tbody>
+  </table>
+
+  <div class="footer">
+    <span>Construct Check &mdash; constructcheck.com</span>
+    <span>Generated ${genDate}</span>
+  </div>
+  <script>window.onload = function(){ window.print(); };<\/script>
+</body>
+</html>`);
+  win.document.close();
 }
 
 function exportNarrative() {

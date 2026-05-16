@@ -147,7 +147,10 @@
     <!-- Print-only report header (hidden on screen, shown only when printing) -->
     <div class="print-header print-only">
       <div>
-        <div class="print-logo">Construct<span>Check</span></div>
+        <div style="display:flex;align-items:center;gap:8pt;">
+          <img src="img/logo.svg" style="height:30pt;" alt="Construct Check"/>
+          <div class="print-logo">Construct<span>Check</span></div>
+        </div>
         <div class="print-tagline">DCMA+ Schedule Validation Report</div>
       </div>
       <div>
@@ -795,7 +798,14 @@ function doExcelExport() {
   const wb = XLSX.utils.book_new();
 
   // ── Summary sheet (always included) ──
+  const projName  = _diagProject?.name || '';
+  const verName   = _activeVersion?.version || '';
+  const genDate   = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
   const summaryRows = [
+    ['Construct Check — DCMA+ Schedule Validation Report'],
+    [`Project: ${projName}`, '', `Version: ${verName}`, '', `Overall Score: ${_activeVersion?.overallScore ?? '—'}/100`],
+    [`Generated: ${genDate}`],
+    [],
     ['Category', 'Severity', 'Rule / Check', 'Affected Activities', '% of Total', 'Score Penalty (pts)', 'DCMA Threshold']
   ];
   diagData.forEach(d => {
