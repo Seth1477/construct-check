@@ -222,14 +222,14 @@
           <h3 class="card-title" style="flex:1;margin:0">Issues by Category</h3>
           <button class="info-icon-btn" data-info-topic="dcma-plus" title="Learn about DCMA+ scoring"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><circle cx="12" cy="8" r="0.5" fill="currentColor"/></svg></button>
         </div>
-        <div class="chart-container" style="height:200px;">
-          <div id="categoryChart" style="width:100%;height:100%;"></div>
+        <div class="chart-container" style="overflow:hidden;">
+          <div id="categoryChart"></div>
         </div>
       </div>
       <div class="card">
         <h3 class="card-title mb-4">Issues by Severity</h3>
-        <div class="chart-container" style="height:200px;">
-          <div id="severityChart" style="width:100%;height:100%;"></div>
+        <div class="chart-container" style="overflow:hidden;">
+          <div id="severityChart"></div>
         </div>
       </div>
     </div>
@@ -647,8 +647,8 @@ function renderScoreSummary(version) {
               <div style="font-size:16px;font-weight:800;color:${critActCount > 0 ? '#dc2626' : '#1e1b4b'};">${totalAffected.toLocaleString()}</div>
             </div>
             <div>
-              <div style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">Score Penalty</div>
-              <div style="font-size:16px;font-weight:800;color:#dc2626;">−${totalPenalty.toFixed(1)} pts</div>
+              <div style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">Points Lost</div>
+              <div style="font-size:16px;font-weight:800;color:#dc2626;">−${typeof overall === 'number' ? (100 - overall) : '—'} pts</div>
             </div>
           </div>
         </div>
@@ -661,9 +661,11 @@ function renderScoreSummary(version) {
           </div>
           <div style="margin-top:14px;padding-top:12px;border-top:1px solid #f1f0fb;font-size:12px;color:#94a3b8;line-height:1.6;">
             <strong style="color:#64748b;">How your score is calculated:</strong>
-            Each schedule starts at <strong style="color:#1e1b4b;">100 points</strong>.
-            Every flagged issue carries a penalty based on how many activities are affected and the severity of the problem.
-            The penalties across all six categories are summed and deducted, giving your final score.
+            Each of the six categories starts at <strong style="color:#1e1b4b;">100 points</strong>.
+            Rule penalties reduce the score within their category (e.g., a −20 pt penalty in Logic Quality brings that category from 100 → 80).
+            The overall score is a <strong style="color:#1e1b4b;">weighted average</strong> of all six category scores —
+            Logic Quality (25%), Critical Path (20%), Date Integrity (15%), Constraints &amp; Float (15%), Progress Realism (15%), Activity Hygiene (10%) —
+            so a penalty in a high-weight category matters more than one in a low-weight category.
             A score ≥ 85 is <span style="color:#16a34a;font-weight:700;">Good</span>,
             70–84 is <span style="color:#d97706;font-weight:700;">Moderate</span>,
             and below 70 is <span style="color:#dc2626;font-weight:700;">At Risk</span>.
