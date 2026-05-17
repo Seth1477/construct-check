@@ -721,7 +721,7 @@ const App = {
     if (version && version.isReal && version.milestones && version.milestones.length > 0) {
       container.innerHTML = version.milestones.map(m => {
         const isCritical = m.totalFloat !== undefined && m.totalFloat <= 0;
-        const hasActual = !!m.actualFinish;
+        const hasActual = m.status === 'TK_Complete' || (m.actualFinish && m.actualFinish.trim() !== '' && !m.actualFinish.startsWith('0000'));
         const statusLabel = hasActual ? 'Complete' : (isCritical ? 'Critical' : 'Scheduled');
         const statusBadge = hasActual ? 'badge-success' : (isCritical ? 'badge-critical' : 'badge-info');
         const floatClass = m.totalFloat < 0 ? 'text-red' : m.totalFloat === 0 ? 'text-amber' : 'text-green';

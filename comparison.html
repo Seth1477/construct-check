@@ -198,23 +198,42 @@
       <!-- ACTIVITIES TAB -->
       <div class="tab-pane" id="comp-activities">
         <div class="card">
-          <div class="card-header">
-            <h2 class="card-title">Activity Date Changes</h2>
-            <input type="text" class="form-input" id="actSearch" placeholder="Search activities..." oninput="filterActivityChanges()" style="width:220px;" />
+          <div class="card-header" style="flex-wrap:wrap;gap:8px;">
+            <h2 class="card-title">Activity Date Changes <span id="actChangeBadge" class="badge badge-medium" style="margin-left:8px;font-size:11px;"></span></h2>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input type="text" class="form-input" id="actSearch" placeholder="Search ID or name..." oninput="filterActivityChanges()" style="width:180px;" />
+              <select class="form-select" id="actWbsFilter" onchange="filterActivityChanges()" style="width:200px;">
+                <option value="">All Work Packages</option>
+              </select>
+              <select class="form-select" id="actTypeFilter" onchange="filterActivityChanges()" style="width:150px;">
+                <option value="">All changes</option>
+                <option value="changed">Date changed</option>
+                <option value="added">Added</option>
+                <option value="removed">Removed</option>
+              </select>
+            </div>
           </div>
           <table class="data-table mt-4">
             <thead>
               <tr>
                 <th>Activity ID</th>
                 <th>Activity Name</th>
+                <th>Work Package</th>
                 <th>Start (Prior → Current)</th>
                 <th>Finish (Prior → Current)</th>
-                <th>Finish Variance</th>
+                <th>Finish Var.</th>
                 <th>Float Δ</th>
               </tr>
             </thead>
             <tbody id="activityChanges"></tbody>
           </table>
+          <div id="actPagination" style="display:flex;align-items:center;justify-content:space-between;padding:12px 0 4px;gap:12px;">
+            <span id="actPageInfo" style="font-size:13px;color:#64748b;"></span>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-secondary btn-sm" id="actPrevBtn" onclick="actChangePage(-1)" disabled>← Prev</button>
+              <button class="btn btn-secondary btn-sm" id="actNextBtn" onclick="actChangePage(1)" disabled>Next →</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -300,6 +319,10 @@ let _compProject = null;
 let _compVersions = [];
 let _v1 = null, _v2 = null;
 let _allActivityChanges = [];
+let _filteredActivityChanges = [];
+let _actPage = 0;
+const ACT_PAGE_SIZE = 50;
+let _wbsMap = new Map(); // code → name for v2
 
 document.addEventListener('DOMContentLoaded', async () => {
   await App.whenReady();
@@ -525,7 +548,7 @@ function renderMilestoneChanges() {
     if (prevDate && curDate) {
       variance = Math.round((new Date(curDate) - new Date(prevDate)) / 86400000);
     }
-    const hasActual = !!cur.actualFinish;
+    const hasActual = cur.status === 'TK_Complete' || (cur.actualFinish && cur.actualFinish.trim() !== '' && !cur.actualFinish.startsWith('0000'));
     rows.push({ name: cur.name, prevDate, curDate, variance, hasActual });
   });
 
@@ -595,7 +618,7 @@ function renderActivityChanges() {
   // Added activities (in v2, not in v1)
   a2.filter(a => !keys1.has(keyOf(a))).forEach(a => {
     changes.push({
-      type: 'added', code: keyOf(a), name: a.name,
+      type: 'added', code: keyOf(a), name: a.name, wbsId: a.wbsId || null,
       priorStart: null, curStart: a.earlyStart || a.plannedStart || null,
       priorFinish: null, curFinish: a.earlyFinish || a.plannedFinish || null,
       finishVariance: null, floatDelta: null
@@ -605,7 +628,7 @@ function renderActivityChanges() {
   // Removed activities (in v1, not in v2)
   a1.filter(a => !keys2.has(keyOf(a))).forEach(a => {
     changes.push({
-      type: 'removed', code: keyOf(a), name: a.name,
+      type: 'removed', code: keyOf(a), name: a.name, wbsId: a.wbsId || null,
       priorStart: a.earlyStart || a.plannedStart || null, curStart: null,
       priorFinish: a.earlyFinish || a.plannedFinish || null, curFinish: null,
       finishVariance: null, floatDelta: null
@@ -634,7 +657,7 @@ function renderActivityChanges() {
       ? (a.totalFloat - prev.totalFloat) : null;
 
     changes.push({
-      type: 'changed', code: keyOf(a), name: a.name,
+      type: 'changed', code: keyOf(a), name: a.name, wbsId: a.wbsId || null,
       priorStart, curStart, priorFinish, curFinish,
       finishVariance, floatDelta
     });
@@ -650,23 +673,38 @@ function renderActivityChanges() {
   });
 
   _allActivityChanges = changes;
-  _renderActivityRows(changes.slice(0, 300));
 
-  // Update header with count
-  const titleEl = document.querySelector('#comp-activities .card-title');
+  // Build WBS map and populate dropdown from v2's wbsLookup
+  _wbsMap = new Map();
+  const wbsSel = document.getElementById('actWbsFilter');
+  if (wbsSel) {
+    wbsSel.innerHTML = '<option value="">All Work Packages</option>';
+    const wbsSource = _v2?.wbsLookup || _v1?.wbsLookup || [];
+    wbsSource.forEach(w => {
+      _wbsMap.set(w.id, w.name || w.code || w.id);
+    });
+    // Collect WBS IDs actually referenced by changed activities
+    const usedWbs = new Set();
+    (_v2?.activityLookup || []).forEach(a => { if (a.wbsId) usedWbs.add(a.wbsId); });
+    const wbsInChanges = new Set(changes.map(c => c.wbsId).filter(Boolean));
+    wbsSource
+      .filter(w => wbsInChanges.has(w.id))
+      .forEach(w => {
+        const opt = document.createElement('option');
+        opt.value = w.id;
+        opt.textContent = (w.code ? w.code + ' — ' : '') + (w.name || w.id);
+        wbsSel.appendChild(opt);
+      });
+  }
+
+  // Update header badge
   const changed = changes.filter(c => c.type === 'changed').length;
   const added   = changes.filter(c => c.type === 'added').length;
   const removed = changes.filter(c => c.type === 'removed').length;
-  if (titleEl) {
-    let next = titleEl.nextElementSibling;
-    if (next && next.tagName === 'INPUT') next = null;
-    const badgeHtml = `<span class="badge badge-medium" style="margin-left:8px;">${changed} changed · ${added} added · ${removed} removed</span>`;
-    if (!document.getElementById('actChangeBadge')) {
-      titleEl.insertAdjacentHTML('afterend', `<span id="actChangeBadge">${badgeHtml.replace('<span','<span id="actChangeBadge"')}</span>`);
-    } else {
-      document.getElementById('actChangeBadge').innerHTML = `${changed} changed · ${added} added · ${removed} removed`;
-    }
-  }
+  const badge = document.getElementById('actChangeBadge');
+  if (badge) badge.textContent = `${changed} changed · ${added} added · ${removed} removed`;
+
+  filterActivityChanges();
 }
 
 function _renderActivityRows(changes) {
@@ -674,16 +712,21 @@ function _renderActivityRows(changes) {
   if (!tbody) return;
 
   if (changes.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:24px;">No activity date changes between these versions.</td></tr>`;
+    const hasFilters = (document.getElementById('actSearch')?.value || '') ||
+                       (document.getElementById('actWbsFilter')?.value || '') ||
+                       (document.getElementById('actTypeFilter')?.value || '');
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:24px;">
+      ${hasFilters ? 'No activities match the current filters.' : 'No activity date changes between these versions.'}
+    </td></tr>`;
     return;
   }
 
   const fmtDelta = (prev, cur) => {
     if (!prev && !cur) return '—';
-    if (!prev) return `<span class="text-green">New: ${App.formatDate(cur)}</span>`;
-    if (!cur)  return `<span class="text-red">Removed: ${App.formatDate(prev)}</span>`;
-    if (prev === cur) return App.formatDate(cur);
-    return `<span style="color:#94a3b8;text-decoration:line-through;font-size:11px;">${App.formatDate(prev)}</span><br/><strong>${App.formatDate(cur)}</strong>`;
+    if (!prev) return `<span class="text-green">${App.formatDate(cur)}</span>`;
+    if (!cur)  return `<span class="text-red">${App.formatDate(prev)}</span>`;
+    if ((prev || '') === (cur || '')) return `<span style="color:#94a3b8;font-size:11px;">${App.formatDate(cur)}</span>`;
+    return `<span style="color:#94a3b8;text-decoration:line-through;font-size:11px;">${App.formatDate(prev)}</span> <strong>${App.formatDate(cur)}</strong>`;
   };
 
   tbody.innerHTML = changes.map(c => {
@@ -691,11 +734,13 @@ function _renderActivityRows(changes) {
     const varClass = varDays > 0 ? 'text-red font-bold' : varDays < 0 ? 'text-green' : 'text-secondary';
     const varText  = varDays !== null ? `${varDays > 0 ? '+' : ''}${varDays}d` : '—';
     const floatTxt = c.floatDelta !== null ? `${c.floatDelta > 0 ? '+' : ''}${c.floatDelta}d` : '—';
-    const floatCls = c.floatDelta < 0 ? 'text-red' : c.floatDelta > 0 ? 'text-green' : 'text-secondary';
+    const floatCls = c.floatDelta !== null ? (c.floatDelta < 0 ? 'text-red' : c.floatDelta > 0 ? 'text-green' : 'text-secondary') : 'text-secondary';
     const rowBg    = c.type === 'added' ? 'background:#f0fdf4;' : c.type === 'removed' ? 'background:#fff5f5;' : '';
+    const wbsName  = c.wbsId ? (_wbsMap.get(c.wbsId) || c.wbsId) : '—';
     return `<tr style="${rowBg}">
       <td><code style="font-size:11px;">${c.code}</code></td>
-      <td style="max-width:260px;">${c.name || '—'}</td>
+      <td style="max-width:200px;font-size:13px;">${c.name || '—'}</td>
+      <td style="max-width:140px;font-size:11px;color:#64748b;">${wbsName}</td>
       <td style="font-size:12px;">${fmtDelta(c.priorStart, c.curStart)}</td>
       <td style="font-size:12px;">${fmtDelta(c.priorFinish, c.curFinish)}</td>
       <td class="${varClass}">${varText}</td>
@@ -705,13 +750,46 @@ function _renderActivityRows(changes) {
 }
 
 function filterActivityChanges() {
-  const q = (document.getElementById('actSearch')?.value || '').toLowerCase().trim();
-  if (!q) { _renderActivityRows(_allActivityChanges.slice(0, 300)); return; }
-  const filtered = _allActivityChanges.filter(c =>
-    (c.name || '').toLowerCase().includes(q) ||
-    (c.code || '').toLowerCase().includes(q)
-  );
-  _renderActivityRows(filtered.slice(0, 300));
+  const q      = (document.getElementById('actSearch')?.value || '').toLowerCase().trim();
+  const wbsId  = document.getElementById('actWbsFilter')?.value  || '';
+  const typeF  = document.getElementById('actTypeFilter')?.value || '';
+
+  _filteredActivityChanges = _allActivityChanges.filter(c => {
+    if (typeF && c.type !== typeF) return false;
+    if (wbsId && c.wbsId !== wbsId) return false;
+    if (q && !(c.name || '').toLowerCase().includes(q) && !(c.code || '').toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  _actPage = 0;
+  _renderActivityPage();
+}
+
+function actChangePage(dir) {
+  const maxPage = Math.max(0, Math.ceil(_filteredActivityChanges.length / ACT_PAGE_SIZE) - 1);
+  _actPage = Math.min(maxPage, Math.max(0, _actPage + dir));
+  _renderActivityPage();
+}
+
+function _renderActivityPage() {
+  const total  = _filteredActivityChanges.length;
+  const start  = _actPage * ACT_PAGE_SIZE;
+  const end    = Math.min(start + ACT_PAGE_SIZE, total);
+  const page   = _filteredActivityChanges.slice(start, end);
+  const maxPage = Math.max(0, Math.ceil(total / ACT_PAGE_SIZE) - 1);
+
+  _renderActivityRows(page);
+
+  const info = document.getElementById('actPageInfo');
+  if (info) info.textContent = total === 0 ? 'No results' : `Showing ${start + 1}–${end} of ${total} activities`;
+
+  const prev = document.getElementById('actPrevBtn');
+  const next = document.getElementById('actNextBtn');
+  if (prev) prev.disabled = _actPage === 0;
+  if (next) next.disabled = _actPage >= maxPage;
+
+  const pag = document.getElementById('actPagination');
+  if (pag) pag.style.display = total > ACT_PAGE_SIZE ? 'flex' : 'none';
 }
 
 // ── Float Distribution Chart ──────────────────────────────────
