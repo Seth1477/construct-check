@@ -156,32 +156,42 @@ const DataStore = {
   // ─── Schedule Versions ────────────────────────────────────────
 
   async saveVersions(email, versions) {
-    // 1. localStorage backup (may fail for large data — that's OK)
+    // 1. IndexedDB — most reliable for large payloads; MUST be awaited before redirect
+    const idbOk = await this._idbPut(this._userKey(email, 'versions'), versions).catch(() => false);
+    if (idbOk) console.log(`[DataStore] Saved ${versions.length} versions to IDB`);
+
+    // 2. localStorage backup (may fail if quota exceeded — silent is fine)
     try { localStorage.setItem(`cc_versions_${email}`, JSON.stringify(versions)); } catch (e) {}
-    // 2. IndexedDB cache
-    this._idbPut(this._userKey(email, 'versions'), versions).catch(() => {});
-    // 3. Supabase — authoritative
-    const saved = await this._sbUpsert({ versions });
-    if (saved) console.log(`[DataStore] Saved ${versions.length} versions to Supabase`);
+
+    // 3. Supabase — cross-device sync (best-effort; IDB is the reliable local store)
+    const sbOk = await this._sbUpsert({ versions }).catch(() => false);
+    if (sbOk) console.log(`[DataStore] Saved ${versions.length} versions to Supabase`);
+
+    if (!idbOk && !sbOk) console.warn('[DataStore] All version saves failed — data may be lost on reload');
     return true;
   },
 
   async loadVersions(email) {
     // 1. Supabase — authoritative, cross-device
-    const sbData = await this._sbSelect('versions');
+    const sbData = await this._sbSelect('versions').catch(() => null);
     if (sbData && sbData.length > 0) {
       console.log(`[DataStore] Loaded ${sbData.length} versions from Supabase`);
-      // Refresh caches
+      // Refresh IDB cache (fire-and-forget here is OK — we already have the data)
       this._idbPut(this._userKey(email, 'versions'), sbData).catch(() => {});
       return sbData;
     }
-    // 2. IndexedDB
-    const idbData = await this._idbGet(this._userKey(email, 'versions'));
-    if (idbData && idbData.length > 0) return idbData;
-    // 3. localStorage
+    // 2. IndexedDB — reliable local store
+    const idbData = await this._idbGet(this._userKey(email, 'versions')).catch(() => null);
+    if (idbData && idbData.length > 0) {
+      console.log(`[DataStore] Loaded ${idbData.length} versions from IDB`);
+      return idbData;
+    }
+    // 3. localStorage — last resort
     try {
       const ls = localStorage.getItem(`cc_versions_${email}`);
-      return ls ? JSON.parse(ls) : null;
+      const parsed = ls ? JSON.parse(ls) : null;
+      if (parsed && parsed.length > 0) console.log(`[DataStore] Loaded ${parsed.length} versions from localStorage`);
+      return parsed;
     } catch (e) { return null; }
   },
 

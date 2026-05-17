@@ -461,10 +461,17 @@ async function startUpload() {
     document.getElementById('uploadStatus').textContent =
       totalFiles > 1 ? `Analyzing file ${i + 1} of ${totalFiles}: ${file.name}` : 'Running DCMA+ validation analysis...';
 
-    const engine = new ScoringEngine();
-    const scores = engine.analyze(parsed);
-    const cpAnalyzer = new CriticalPathAnalyzer();
-    const cpResult = cpAnalyzer.analyze(parsed.activities, parsed.relationships);
+    let scores, cpResult;
+    try {
+      const engine = new ScoringEngine();
+      scores = engine.analyze(parsed);
+      const cpAnalyzer = new CriticalPathAnalyzer();
+      cpResult = cpAnalyzer.analyze(parsed.activities, parsed.relationships);
+    } catch (analyzeErr) {
+      App.showAlert(`Analysis error for ${file.name}: ${analyzeErr.message}`, 'error');
+      resetOnError();
+      return;
+    }
 
     const existingCount = (App.scheduleVersions || []).filter(v => v.projectId === projectId && !v.isDemo).length;
     const versionNumber = existingCount + newVersions.length + 1;
