@@ -22,10 +22,13 @@ class ScoringEngine {
 
   analyze(parsedSchedule) {
     const { activities, relationships, project, milestones } = parsedSchedule;
-    const actCount = activities.length;
-    if (actCount === 0) return null;
+    if (activities.length === 0) return null;
 
-    const rules = this.runAllRules(activities, relationships, project, actCount);
+    // LOE and WBS summary are excluded from scheduling analysis
+    const EXCL = new Set(['TT_LOE', 'TT_WBS']);
+    const schedulable = activities.filter(a => !EXCL.has(a.type));
+
+    const rules = this.runAllRules(activities, relationships, project, schedulable.length);
     const categoryScores = this.computeCategoryScores(rules);
     const overallScore = this.computeOverallScore(categoryScores);
     const rag = this.getRAG(overallScore);
@@ -37,10 +40,10 @@ class ScoringEngine {
       categoryScores,
       rules,
       dcmaCompliance,
-      activityCount: actCount,
+      activityCount: schedulable.length,
       relationshipCount: relationships.length,
-      criticalCount: activities.filter(a => a.isCritical).length,
-      negativeFloatCount: activities.filter(a => a.totalFloat < 0).length,
+      criticalCount: schedulable.filter(a => a.isCritical).length,
+      negativeFloatCount: schedulable.filter(a => typeof a.totalFloat === 'number' && a.totalFloat < 0).length,
       milestoneCount: (milestones || []).length,
       dataDate: project.dataDate
     };
@@ -60,8 +63,16 @@ class ScoringEngine {
       if (succMap[r.predecessorId]) succMap[r.predecessorId].push(r);
     });
 
+    // LOE and WBS summary activities are excluded from scheduling rules:
+    // - LOE activities span the project and always show float ≈ 0 — not truly critical
+    // - WBS summaries roll up child data and have no independent schedule logic
+    const SCHED_EXCL = new Set(['TT_LOE', 'TT_WBS']);
+    const schedulableActs = activities.filter(a => !SCHED_EXCL.has(a.type));
+    // Use schedulable count as the denominator for all percentage-based rules
+    actCount = schedulableActs.length || 1;
+
     // Exclude complete activities from most logic checks
-    const incompleteActs = activities.filter(a => a.status !== 'TK_Complete' && !a.actualFinish);
+    const incompleteActs = schedulableActs.filter(a => a.status !== 'TK_Complete' && !a.actualFinish);
     const incompleteCount = incompleteActs.length || 1;
 
     // ──────────────────────────────────────────────────────────
@@ -327,7 +338,7 @@ class ScoringEngine {
     // ──────────────────────────────────────────────────────────
 
     // RULE 11: Negative Float (DCMA #7 — must be 0)
-    const negFloat = activities.filter(a => a.totalFloat < 0 && a.status !== 'TK_Complete');
+    const negFloat = incompleteActs.filter(a => typeof a.totalFloat === 'number' && a.totalFloat < 0);
     const negFloatPct = negFloat.length / incompleteCount * 100;
     results.push({
       ruleKey: 'NEGATIVE_FLOAT',
@@ -348,8 +359,8 @@ class ScoringEngine {
 
     // RULE 12: Hard Constraints (DCMA #5 — < 5%)
     const hardConstraintTypes = ['CS_MSO', 'CS_FNLT', 'CS_MEOA', 'CS_MEOB', 'CS_MEO', 'CS_MSOOB', 'CS_MANDFIN', 'CS_MANDSTART'];
-    const hardConstraints = activities.filter(a =>
-      hardConstraintTypes.includes(a.constraintType) && a.status !== 'TK_Complete'
+    const hardConstraints = incompleteActs.filter(a =>
+      hardConstraintTypes.includes(a.constraintType)
     );
     const hardConPct = hardConstraints.length / incompleteCount * 100;
     results.push({

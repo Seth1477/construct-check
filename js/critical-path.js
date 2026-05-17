@@ -1,137 +1,98 @@
-// critical-path.js - Critical Path Method (CPM) Analysis
+// critical-path.js
+// Uses P6's own calculated dates and float rather than re-running CPM.
+// P6 accounts for calendars, constraints, and resource leveling — we don't
+// try to replicate that math. We just read what P6 already computed.
 
 class CriticalPathAnalyzer {
+  // These types are never schedulable and must never appear on the critical path.
+  // LOE activities have float ≈ 0 by P6 design (they span the project);
+  // WBS summaries roll up child data and have no independent schedule logic.
+  static EXCLUDED = new Set(['TT_LOE', 'TT_WBS']);
+
   analyze(activities, relationships) {
-    if (!activities || activities.length === 0) return { criticalPath: [], longestPath: [] };
+    if (!activities || activities.length === 0) {
+      return { criticalPath: [], longestPath: [], projectDuration: 0 };
+    }
 
-    const actMap = {};
-    activities.forEach(a => {
-      actMap[a.id] = { ...a, es: 0, ef: a.duration, ls: 0, lf: 0, slack: 0 };
-    });
+    const pd = s => s ? new Date(String(s).replace(' ', 'T')) : null;
 
-    // Build adjacency
-    const successors = {};
-    const predecessors = {};
-    activities.forEach(a => { successors[a.id] = []; predecessors[a.id] = []; });
+    // Work only with real schedulable activities
+    const realActs = activities.filter(a => !CriticalPathAnalyzer.EXCLUDED.has(a.type));
+
+    // Critical = zero or negative P6-stored total float, real activity type only
+    const criticalActivities = realActs.filter(a =>
+      typeof a.totalFloat === 'number' && a.totalFloat <= 0
+    );
+
+    if (criticalActivities.length === 0) {
+      return { criticalPath: [], longestPath: [], projectDuration: 0 };
+    }
+
+    // Build predecessor map restricted to real activities
+    const realIds = new Set(realActs.map(a => a.id));
+    const predMap = new Map(); // id → [predecessorId, ...]
+    realActs.forEach(a => predMap.set(a.id, []));
     relationships.forEach(r => {
-      if (successors[r.predecessorId]) successors[r.predecessorId].push(r);
-      if (predecessors[r.successorId]) predecessors[r.successorId].push(r);
-    });
-
-    // Topological sort
-    const sorted = this.topologicalSort(activities, successors);
-
-    // Forward pass
-    sorted.forEach(id => {
-      const act = actMap[id];
-      if (!act) return;
-      const preds = predecessors[id] || [];
-      if (preds.length === 0) {
-        act.es = 0;
-      } else {
-        act.es = Math.max(...preds.map(r => {
-          const pred = actMap[r.predecessorId];
-          if (!pred) return 0;
-          const lag = r.lag || 0;
-          if (r.type === 'PR_FS' || !r.type) return pred.ef + lag;
-          if (r.type === 'PR_SS') return pred.es + lag;
-          if (r.type === 'PR_FF') return pred.ef + lag - act.duration;
-          if (r.type === 'PR_SF') return pred.es + lag - act.duration;
-          return pred.ef + lag;
-        }));
+      if (realIds.has(r.predecessorId) && realIds.has(r.successorId)) {
+        predMap.get(r.successorId)?.push(r.predecessorId);
       }
-      act.ef = act.es + act.duration;
     });
 
-    // Project end
-    const projectEnd = Math.max(...Object.values(actMap).map(a => a.ef));
+    // Trace the longest chain of critical activities backwards from the one
+    // with the latest early finish (= project end point on the critical path)
+    const longestPath = this.traceLongestPath(criticalActivities, predMap, pd);
 
-    // Backward pass
-    [...sorted].reverse().forEach(id => {
-      const act = actMap[id];
-      if (!act) return;
-      const succs = successors[id] || [];
-      if (succs.length === 0) {
-        act.lf = projectEnd;
-      } else {
-        act.lf = Math.min(...succs.map(r => {
-          const succ = actMap[r.successorId];
-          if (!succ) return projectEnd;
-          const lag = r.lag || 0;
-          if (r.type === 'PR_FS' || !r.type) return succ.ls - lag;
-          if (r.type === 'PR_SS') return succ.ls - lag + act.duration;
-          if (r.type === 'PR_FF') return succ.lf - lag;
-          if (r.type === 'PR_SF') return succ.lf - lag + act.duration;
-          return succ.ls - lag;
-        }));
-      }
-      act.ls = act.lf - act.duration;
-      act.slack = +(act.lf - act.ef).toFixed(2);
-      act.computedCritical = Math.abs(act.slack) < 0.01;
-    });
-
-    const criticalActivities = Object.values(actMap).filter(a => a.computedCritical);
-    const longestPath = this.findLongestPath(actMap, successors, sorted);
+    // Project duration: span from earliest start to latest finish on the path
+    const pathActs = longestPath.length > 0 ? longestPath : criticalActivities;
+    const projectDuration = this.computeWorkingDays(pathActs, pd);
 
     return {
       criticalPath: criticalActivities,
       longestPath,
-      projectDuration: projectEnd,
-      activityMap: actMap
+      projectDuration,
+      activityMap: {}
     };
   }
 
-  topologicalSort(activities, successors) {
+  traceLongestPath(criticalActivities, predMap, pd) {
+    const critSet = new Set(criticalActivities.map(a => a.id));
+    const actMap  = new Map(criticalActivities.map(a => [a.id, a]));
+
+    const finishOf = a => pd(a.earlyFinish || a.plannedFinish) || new Date(0);
+
+    // Terminal = critical activity with the latest early finish
+    const terminal = [...criticalActivities].sort((a, b) => finishOf(b) - finishOf(a))[0];
+
+    const path    = [];
     const visited = new Set();
-    const result = [];
-    const temp = new Set();
+    let current   = terminal;
 
-    const visit = (id) => {
-      if (temp.has(id)) return;
-      if (visited.has(id)) return;
-      temp.add(id);
-      (successors[id] || []).forEach(r => visit(r.successorId));
-      temp.delete(id);
-      visited.add(id);
-      result.unshift(id);
-    };
+    while (current && !visited.has(current.id)) {
+      visited.add(current.id);
+      path.unshift(current);
 
-    activities.forEach(a => {
-      if (!visited.has(a.id)) visit(a.id);
-    });
-    return result;
+      // Among critical predecessors pick the one with the latest early finish
+      // (the most constraining / most recently completing predecessor)
+      const critPreds = (predMap.get(current.id) || [])
+        .filter(pid => critSet.has(pid))
+        .map(pid => actMap.get(pid))
+        .filter(Boolean)
+        .sort((a, b) => finishOf(b) - finishOf(a));
+
+      current = critPreds[0] || null;
+    }
+
+    return path;
   }
 
-  findLongestPath(actMap, successors, sorted) {
-    const dist = {};
-    const prev = {};
-    sorted.forEach(id => { dist[id] = actMap[id] ? actMap[id].duration : 0; });
-
-    sorted.forEach(id => {
-      const act = actMap[id];
-      if (!act) return;
-      (successors[id] || []).forEach(r => {
-        const succ = actMap[r.successorId];
-        if (!succ) return;
-        const newDist = dist[id] + (succ.duration || 0) + (r.lag || 0);
-        if (newDist > (dist[r.successorId] || 0)) {
-          dist[r.successorId] = newDist;
-          prev[r.successorId] = id;
-        }
-      });
-    });
-
-    // Find end node
-    const endId = sorted.reduce((maxId, id) => dist[id] > dist[maxId] ? id : maxId, sorted[0]);
-
-    // Trace back
-    const path = [];
-    let cur = endId;
-    while (cur) {
-      if (actMap[cur]) path.unshift(actMap[cur]);
-      cur = prev[cur];
-    }
-    return path;
+  computeWorkingDays(activities, pd) {
+    const starts   = activities.map(a => pd(a.earlyStart   || a.plannedStart)).filter(Boolean);
+    const finishes = activities.map(a => pd(a.earlyFinish  || a.plannedFinish)).filter(Boolean);
+    if (!starts.length || !finishes.length) return 0;
+    const earliest = new Date(Math.min(...starts.map(d => d.getTime())));
+    const latest   = new Date(Math.max(...finishes.map(d => d.getTime())));
+    // Approximate working days (calendar days × 5/7, rounded)
+    return Math.round((latest - earliest) / 86400000 * 5 / 7);
   }
 }
 

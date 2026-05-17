@@ -124,7 +124,9 @@ class XERParser {
       plannedFinish: t.target_end_date || '',
       totalFloat: parseFloat(t.total_float_hr_cnt || 0) / 8,
       freeFloat: parseFloat(t.free_float_hr_cnt || 0) / 8,
-      isCritical: (parseFloat(t.total_float_hr_cnt || 0) / 8) <= 0,
+      // LOE and WBS summary activities always have float ≈ 0 by design in P6 — they are never critical
+      isCritical: (parseFloat(t.total_float_hr_cnt || 0) / 8) <= 0 &&
+                  t.task_type !== 'TT_LOE' && t.task_type !== 'TT_WBS',
       constraintType: t.cstr_type || '',
       constraintDate: t.cstr_date || '',
       constraint2Type: t.cstr_type2 || '',

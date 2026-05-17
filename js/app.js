@@ -777,9 +777,29 @@ const App = {
       return (a.plannedFinish || a.plannedStart || '').localeCompare(b.plannedFinish || b.plannedStart || '');
     });
 
-    container.innerHTML = sorted.map(m => {
+    // Expose sorted list globally so filterMilestones() can filter without re-rendering
+    window._dashMilestones = sorted.map(m => {
       const comp   = isComplete(m);
       const isCrit = !comp && typeof m.totalFloat === 'number' && m.totalFloat <= 0;
+      return { ...m, _comp: comp, _isCrit: isCrit };
+    });
+
+    this._renderMilestoneRows(window._dashMilestones);
+  },
+
+  _renderMilestoneRows(list) {
+    const container = document.querySelector('#milestonesTable');
+    if (!container) return;
+    const fmt = d => this.formatDate(d);
+
+    if (list.length === 0) {
+      container.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">No milestones match the current filter.</td></tr>`;
+      return;
+    }
+
+    container.innerHTML = list.map(m => {
+      const comp   = m._comp;
+      const isCrit = m._isCrit;
       const statusLabel = comp ? 'Complete' : isCrit ? 'Critical' : 'Scheduled';
       const statusBadge = comp ? 'badge-success' : isCrit ? 'badge-critical' : 'badge-info';
       const floatCls    = typeof m.totalFloat === 'number'

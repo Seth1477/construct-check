@@ -305,18 +305,23 @@
       <!-- MILESTONES TAB -->
       <div class="tab-pane" id="tab-milestones">
         <div class="card">
-          <div class="card-header" style="display:flex;align-items:center;gap:8px;">
+          <div class="card-header" style="flex-wrap:wrap;gap:8px;">
             <h2 class="card-title" style="flex:1">Milestone Status</h2>
-            <button class="info-icon-btn" data-info-topic="milestones" title="Learn about Milestones"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><circle cx="12" cy="8" r="0.5" fill="currentColor"/></svg></button>
-            <div class="milestone-summary">
-              <span class="badge" style="background:#22c55e20;color:#16a34a">1 Complete</span>
-              <span class="badge badge-critical">4 Slipping / At Risk</span>
-              <span class="badge badge-medium">Avg slip: +42d</span>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <input type="text" class="form-input" id="msSearch" placeholder="Search milestones…" oninput="filterMilestones()" style="width:160px;" />
+              <select class="form-select" id="msStatusFilter" onchange="filterMilestones()" style="width:140px;">
+                <option value="">All statuses</option>
+                <option value="critical">Critical / Neg Float</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="complete">Complete</option>
+              </select>
+              <button class="info-icon-btn" data-info-topic="milestones" title="Learn about Milestones"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><circle cx="12" cy="8" r="0.5" fill="currentColor"/></svg></button>
             </div>
+            <div class="milestone-summary" style="width:100%;margin-top:4px;"></div>
           </div>
           <table class="data-table mt-4">
             <thead>
-              <tr><th>Milestone</th><th>Contract Date</th><th>Forecast / Actual</th><th>Variance</th><th>Status</th></tr>
+              <tr><th>Milestone</th><th>Contract Date</th><th>Forecast / Actual</th><th>Float</th><th>Status</th></tr>
             </thead>
             <tbody id="milestonesTable"></tbody>
           </table>
@@ -541,6 +546,25 @@ function renderMilestoneSummary() {
     `;
   }
   // else leave demo defaults
+}
+
+// ────────────────────────────────────────────────────────────────
+// MILESTONE FILTER
+// ────────────────────────────────────────────────────────────────
+function filterMilestones() {
+  const q      = (document.getElementById('msSearch')?.value || '').toLowerCase().trim();
+  const status = document.getElementById('msStatusFilter')?.value || '';
+  const all    = window._dashMilestones || [];
+
+  const filtered = all.filter(m => {
+    if (q && !(m.name || '').toLowerCase().includes(q)) return false;
+    if (status === 'critical'  && !m._isCrit) return false;
+    if (status === 'scheduled' && (m._comp || m._isCrit)) return false;
+    if (status === 'complete'  && !m._comp) return false;
+    return true;
+  });
+
+  App._renderMilestoneRows(filtered);
 }
 
 // ────────────────────────────────────────────────────────────────
