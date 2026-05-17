@@ -172,7 +172,13 @@
         <div class="card">
           <div class="card-header">
             <h2 class="card-title">Milestone Variance</h2>
-            <span class="badge badge-critical">4 milestones slipped</span>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b;cursor:pointer;">
+                <input type="checkbox" id="hideCompletedMilestones" checked onchange="renderMilestoneChanges()" style="accent-color:#7c6fe0;"/>
+                Hide completed
+              </label>
+              <span class="badge badge-critical" id="milestoneSlippedBadge">—</span>
+            </div>
           </div>
           <table class="data-table mt-4">
             <thead>
@@ -501,7 +507,8 @@ function renderMilestoneChanges() {
 
   const m1 = _v1?.milestones || [];
   const m2 = _v2?.milestones || [];
-  const badge = document.querySelector('#comp-milestones .badge.badge-critical');
+  const badge = document.getElementById('milestoneSlippedBadge');
+  const hideCompleted = document.getElementById('hideCompletedMilestones')?.checked !== false;
 
   if (m1.length === 0 && m2.length === 0) {
     if (badge) badge.textContent = 'No milestones stored';
@@ -522,14 +529,34 @@ function renderMilestoneChanges() {
     rows.push({ name: cur.name, prevDate, curDate, variance, hasActual });
   });
 
-  rows.sort((a, b) => (b.variance || 0) - (a.variance || 0));
+  // Sort: slipped first, then no-change upcoming, then recovered, completed last
+  rows.sort((a, b) => {
+    if (a.hasActual !== b.hasActual) return a.hasActual ? 1 : -1;
+    return (b.variance || 0) - (a.variance || 0);
+  });
 
   const slipped = rows.filter(r => r.variance > 0 && !r.hasActual).length;
-  if (badge) badge.textContent = slipped > 0 ? `${slipped} milestone${slipped !== 1 ? 's' : ''} slipped` : 'No slippage detected';
+  const total   = rows.length;
+  if (badge) {
+    badge.textContent = slipped > 0 ? `${slipped} slipped` : 'No slippage';
+    badge.className   = slipped > 0 ? 'badge badge-critical' : 'badge badge-low';
+  }
 
-  tbody.innerHTML = rows.map(r => {
+  const visible = hideCompleted ? rows.filter(r => !r.hasActual) : rows;
+
+  if (visible.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">${
+      hideCompleted && total > 0
+        ? `All ${total} milestones are complete. Uncheck "Hide completed" to view them.`
+        : 'No matching milestones found between versions.'
+    }</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = visible.map(r => {
     const dirClass = r.variance > 0 ? 'text-red font-bold' : r.variance < 0 ? 'text-green' : 'text-secondary';
-    const dirLabel = r.hasActual ? '<span class="badge badge-success">Complete</span>'
+    const dirLabel = r.hasActual
+      ? '<span class="badge badge-success">Complete</span>'
       : r.variance > 0 ? '<span class="badge badge-critical">Slipped</span>'
       : r.variance < 0 ? '<span class="badge badge-low">Recovered</span>'
       : '<span class="badge badge-medium">No Change</span>';
@@ -540,7 +567,7 @@ function renderMilestoneChanges() {
       <td class="${dirClass}">${r.variance !== null ? (r.variance > 0 ? '+' : '') + r.variance + 'd' : '—'}</td>
       <td>${dirLabel}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">No matching milestones found between versions.</td></tr>`;
+  }).join('');
 }
 
 // ── Activity Changes ──────────────────────────────────────────
@@ -557,59 +584,63 @@ function renderActivityChanges() {
     return;
   }
 
-  const map1 = new Map(a1.map(a => [a.id, a]));
-  const ids1 = new Set(a1.map(a => a.id));
-  const ids2 = new Set(a2.map(a => a.id));
+  // Match by task_code (user-visible, stable across P6 exports) then fall back to task_id
+  const keyOf = a => a.code || a.id;
+  const map1  = new Map(a1.map(a => [keyOf(a), a]));
+  const keys1 = new Set(a1.map(a => keyOf(a)));
+  const keys2 = new Set(a2.map(a => keyOf(a)));
 
   const changes = [];
 
   // Added activities (in v2, not in v1)
-  a2.filter(a => !ids1.has(a.id)).forEach(a => {
+  a2.filter(a => !keys1.has(keyOf(a))).forEach(a => {
     changes.push({
-      type: 'added', code: a.code || a.id, name: a.name,
-      priorStart: null, newStart: a.earlyStart || a.plannedStart,
-      priorFinish: null, newFinish: a.earlyFinish || a.plannedFinish,
+      type: 'added', code: keyOf(a), name: a.name,
+      priorStart: null, curStart: a.earlyStart || a.plannedStart || null,
+      priorFinish: null, curFinish: a.earlyFinish || a.plannedFinish || null,
       finishVariance: null, floatDelta: null
     });
   });
 
   // Removed activities (in v1, not in v2)
-  a1.filter(a => !ids2.has(a.id)).forEach(a => {
+  a1.filter(a => !keys2.has(keyOf(a))).forEach(a => {
     changes.push({
-      type: 'removed', code: a.code || a.id, name: a.name,
-      priorStart: a.earlyStart || a.plannedStart, newStart: null,
-      priorFinish: a.earlyFinish || a.plannedFinish, newFinish: null,
+      type: 'removed', code: keyOf(a), name: a.name,
+      priorStart: a.earlyStart || a.plannedStart || null, curStart: null,
+      priorFinish: a.earlyFinish || a.plannedFinish || null, curFinish: null,
       finishVariance: null, floatDelta: null
     });
   });
 
-  // Changed activities (in both, with different dates or float)
-  a2.filter(a => ids1.has(a.id)).forEach(a => {
-    const prev = map1.get(a.id);
-    const prevStart  = prev.earlyStart  || prev.plannedStart  || '';
-    const curStart   = a.earlyStart     || a.plannedStart     || '';
-    const prevFinish = prev.earlyFinish || prev.plannedFinish || '';
-    const curFinish  = a.earlyFinish    || a.plannedFinish    || '';
+  // Changed activities (present in both versions)
+  a2.filter(a => keys1.has(keyOf(a))).forEach(a => {
+    const prev = map1.get(keyOf(a));
 
-    const startChanged  = prevStart  !== curStart;
-    const finishChanged = prevFinish !== curFinish;
+    // Prefer early (calculated) dates; fall back to planned (target) dates
+    const priorStart  = prev.earlyStart  || prev.plannedStart  || null;
+    const curStart    = a.earlyStart     || a.plannedStart     || null;
+    const priorFinish = prev.earlyFinish || prev.plannedFinish || null;
+    const curFinish   = a.earlyFinish    || a.plannedFinish    || null;
+
+    const startChanged  = (priorStart  || '') !== (curStart  || '');
+    const finishChanged = (priorFinish || '') !== (curFinish || '');
     if (!startChanged && !finishChanged) return;
 
     let finishVariance = null;
-    if (prevFinish && curFinish) {
-      finishVariance = Math.round((new Date(curFinish) - new Date(prevFinish)) / 86400000);
+    if (priorFinish && curFinish) {
+      finishVariance = Math.round((new Date(curFinish) - new Date(priorFinish)) / 86400000);
     }
     const floatDelta = (typeof a.totalFloat === 'number' && typeof prev.totalFloat === 'number')
       ? (a.totalFloat - prev.totalFloat) : null;
 
     changes.push({
-      type: 'changed', code: a.code || a.id, name: a.name,
+      type: 'changed', code: keyOf(a), name: a.name,
       priorStart, curStart, priorFinish, curFinish,
       finishVariance, floatDelta
     });
   });
 
-  // Sort: biggest finish slippage first, recoveries last, then added/removed
+  // Sort: biggest slippage first, recoveries after, added/removed at end
   changes.sort((a, b) => {
     if (a.type === 'removed' && b.type !== 'removed') return 1;
     if (b.type === 'removed' && a.type !== 'removed') return -1;

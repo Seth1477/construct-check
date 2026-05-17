@@ -557,14 +557,42 @@ const App = {
 
     this.setEl('#projectName', project.name);
     this.setEl('#projectTitle', project.name);
-    this.setEl('#projectClient', project.client);
-    this.setEl('#projectContract', `${project.contractValue} ${project.contractType}`);
-    this.setEl('#projectLocation', project.location);
     this.setEl('#projectDataDate', this.formatDate(hasRealData ? version.dataDate : '2026-01-01'));
     this.setEl('#projectPlannedFinish', this.formatDate(hasRealData ? (version.plannedFinish || project.plannedFinish) : project.plannedFinish));
 
-    if (hasRealData && version.xerProjectName) {
-      this.setEl('#projectClient', version.xerProjectName);
+    // Version label — show what schedule is currently being viewed
+    if (hasRealData && version) {
+      const vLabel = version.version || 'Current';
+      const dataDateStr = version.dataDate ? ` (Data Date: ${this.formatDate(version.dataDate)})` : '';
+      this.setEl('#currentVersionLabel', `${vLabel}${dataDateStr}`);
+
+      // XER internal name — show only if it differs meaningfully from the project name
+      const xerName = version.xerProjectName || '';
+      const xEl = document.getElementById('metaXerNameWrap');
+      if (xerName && xerName.toLowerCase() !== project.name.toLowerCase()) {
+        this.setEl('#projectXerName', xerName);
+        if (xEl) xEl.style.display = '';
+      } else if (xEl) {
+        xEl.style.display = 'none';
+      }
+    } else {
+      this.setEl('#currentVersionLabel', 'Demo data — upload a schedule to see your scores');
+    }
+
+    // Client / location — only show if they have real values (not "TBD" or empty)
+    const clientEl = document.getElementById('metaClientWrap');
+    if (project.client && project.client !== 'TBD' && project.client !== '') {
+      this.setEl('#projectClient', project.client);
+      if (clientEl) clientEl.style.display = '';
+    } else if (clientEl) {
+      clientEl.style.display = 'none';
+    }
+    const locEl = document.getElementById('metaLocationWrap');
+    if (project.location && project.location !== 'TBD' && project.location !== '') {
+      this.setEl('#projectLocation', project.location);
+      if (locEl) locEl.style.display = '';
+    } else if (locEl) {
+      locEl.style.display = 'none';
     }
 
     this.setEl('#overallScore', overallScore);
