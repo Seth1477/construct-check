@@ -488,10 +488,12 @@ async function startUpload() {
       }));
 
     const trimmedCP = {
-      longestPath: (cpResult.longestPath || []).slice(0, 40).map(a => ({
+      longestPath: (cpResult.longestPath || []).map(a => ({
         id: a.id, code: a.code, name: a.name || a.code || 'Activity',
         duration: a.duration, earlyStart: a.earlyStart, earlyFinish: a.earlyFinish,
-        totalFloat: a.totalFloat, type: a.type, isCritical: a.isCritical || a.computedCritical
+        totalFloat: a.totalFloat, type: a.type,
+        isCritical: a.isCritical || a.computedCritical,
+        drivingPath: a.drivingPath || false
       })),
       criticalCount: (cpResult.criticalPath || []).length,
       projectDuration: cpResult.projectDuration

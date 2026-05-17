@@ -1,12 +1,9 @@
 // critical-path.js
-// Uses P6's own calculated dates and float rather than re-running CPM.
-// P6 accounts for calendars, constraints, and resource leveling — we don't
-// try to replicate that math. We just read what P6 already computed.
+// Priority: use P6's own driving_path_flag (most accurate — P6 computed it with
+// full calendar/constraint awareness). Fall back to totalFloat <= 0 if the flag
+// is absent (older XER exports that don't include it).
 
 class CriticalPathAnalyzer {
-  // These types are never schedulable and must never appear on the critical path.
-  // LOE activities have float ≈ 0 by P6 design (they span the project);
-  // WBS summaries roll up child data and have no independent schedule logic.
   static EXCLUDED = new Set(['TT_LOE', 'TT_WBS']);
 
   analyze(activities, relationships) {
@@ -15,22 +12,29 @@ class CriticalPathAnalyzer {
     }
 
     const pd = s => s ? new Date(String(s).replace(' ', 'T')) : null;
-
-    // Work only with real schedulable activities
     const realActs = activities.filter(a => !CriticalPathAnalyzer.EXCLUDED.has(a.type));
 
-    // Critical = zero or negative P6-stored total float, real activity type only
-    const criticalActivities = realActs.filter(a =>
-      typeof a.totalFloat === 'number' && a.totalFloat <= 0
-    );
+    // Determine whether the XER export includes P6's driving path flag
+    const hasDrivingFlag = realActs.some(a => a.drivingPath === true);
+
+    let criticalActivities;
+    if (hasDrivingFlag) {
+      // Use P6's own computation — most accurate
+      criticalActivities = realActs.filter(a => a.drivingPath === true);
+    } else {
+      // Fall back: zero/negative P6 float, excluding LOE/WBS (already filtered above)
+      criticalActivities = realActs.filter(a =>
+        typeof a.totalFloat === 'number' && a.totalFloat <= 0
+      );
+    }
 
     if (criticalActivities.length === 0) {
       return { criticalPath: [], longestPath: [], projectDuration: 0 };
     }
 
-    // Build predecessor map restricted to real activities
+    // Build predecessor map (real activities only)
     const realIds = new Set(realActs.map(a => a.id));
-    const predMap = new Map(); // id → [predecessorId, ...]
+    const predMap = new Map();
     realActs.forEach(a => predMap.set(a.id, []));
     relationships.forEach(r => {
       if (realIds.has(r.predecessorId) && realIds.has(r.successorId)) {
@@ -38,29 +42,19 @@ class CriticalPathAnalyzer {
       }
     });
 
-    // Trace the longest chain of critical activities backwards from the one
-    // with the latest early finish (= project end point on the critical path)
     const longestPath = this.traceLongestPath(criticalActivities, predMap, pd);
-
-    // Project duration: span from earliest start to latest finish on the path
     const pathActs = longestPath.length > 0 ? longestPath : criticalActivities;
     const projectDuration = this.computeWorkingDays(pathActs, pd);
 
-    return {
-      criticalPath: criticalActivities,
-      longestPath,
-      projectDuration,
-      activityMap: {}
-    };
+    return { criticalPath: criticalActivities, longestPath, projectDuration, activityMap: {} };
   }
 
   traceLongestPath(criticalActivities, predMap, pd) {
     const critSet = new Set(criticalActivities.map(a => a.id));
     const actMap  = new Map(criticalActivities.map(a => [a.id, a]));
-
     const finishOf = a => pd(a.earlyFinish || a.plannedFinish) || new Date(0);
 
-    // Terminal = critical activity with the latest early finish
+    // Start from the critical activity with the latest early finish
     const terminal = [...criticalActivities].sort((a, b) => finishOf(b) - finishOf(a))[0];
 
     const path    = [];
@@ -71,8 +65,7 @@ class CriticalPathAnalyzer {
       visited.add(current.id);
       path.unshift(current);
 
-      // Among critical predecessors pick the one with the latest early finish
-      // (the most constraining / most recently completing predecessor)
+      // Follow the critical predecessor with the latest early finish
       const critPreds = (predMap.get(current.id) || [])
         .filter(pid => critSet.has(pid))
         .map(pid => actMap.get(pid))
@@ -91,7 +84,6 @@ class CriticalPathAnalyzer {
     if (!starts.length || !finishes.length) return 0;
     const earliest = new Date(Math.min(...starts.map(d => d.getTime())));
     const latest   = new Date(Math.max(...finishes.map(d => d.getTime())));
-    // Approximate working days (calendar days × 5/7, rounded)
     return Math.round((latest - earliest) / 86400000 * 5 / 7);
   }
 }

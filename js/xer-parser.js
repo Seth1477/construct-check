@@ -127,6 +127,7 @@ class XERParser {
       // LOE and WBS summary activities always have float ≈ 0 by design in P6 — they are never critical
       isCritical: (parseFloat(t.total_float_hr_cnt || 0) / 8) <= 0 &&
                   t.task_type !== 'TT_LOE' && t.task_type !== 'TT_WBS',
+      drivingPath: t.driving_path_flag === 'Y',
       constraintType: t.cstr_type || '',
       constraintDate: t.cstr_date || '',
       constraint2Type: t.cstr_type2 || '',

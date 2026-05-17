@@ -72,7 +72,12 @@
         <div class="breadcrumb"><a href="dashboard.html">Projects</a> › <span id="projectName">Downtown Medical Center Tower</span></div>
         <h1 class="project-title" id="projectTitle">Downtown Medical Center Tower</h1>
         <div class="project-meta-row">
-          <span class="meta-item" id="metaVersionWrap">📋 <span id="currentVersionLabel">—</span></span>
+          <span class="meta-item" id="metaVersionWrap" style="display:flex;align-items:center;gap:6px;">
+            📋
+            <select id="versionSelector" class="form-select" style="font-size:13px;padding:3px 8px;height:auto;min-width:220px;" onchange="switchVersion(this.value)">
+              <option value="">—</option>
+            </select>
+          </span>
           <span class="meta-item" id="metaXerNameWrap" style="display:none;">🗂 <span id="projectXerName"></span></span>
           <span class="meta-item" id="metaClientWrap" style="display:none;">🏢 <span id="projectClient"></span></span>
           <span class="meta-item" id="metaLocationWrap" style="display:none;">📍 <span id="projectLocation"></span></span>
@@ -259,6 +264,7 @@
 
       <!-- CRITICAL PATH TAB -->
       <div class="tab-pane" id="tab-critical-path">
+        <div id="cpVersionBanner" style="display:none;background:#f1f0fb;border-left:4px solid #7c6fe0;padding:8px 14px;border-radius:0 6px 6px 0;font-size:13px;margin-bottom:12px;"></div>
         <div class="card mb-4">
           <div class="card-header" style="display:flex;align-items:center;gap:8px;">
             <h2 class="card-title" style="flex:1">Critical Path Summary</h2>
@@ -455,6 +461,38 @@ function getCurrentVersion() {
 }
 
 // ────────────────────────────────────────────────────────────────
+// VERSION SELECTOR
+// ────────────────────────────────────────────────────────────────
+function populateVersionSelector() {
+  const sel = document.getElementById('versionSelector');
+  if (!sel) return;
+  const { project, version } = getCurrentVersion();
+  if (!project) return;
+
+  const parseD = s => s ? new Date(String(s).replace(' ', 'T')) : new Date(0);
+  const versions = (App.scheduleVersions || [])
+    .filter(v => v.projectId === project.id && v.isReal)
+    .sort((a, b) => parseD(a.dataDate) - parseD(b.dataDate));
+
+  sel.innerHTML = versions.map(v => {
+    const label = `${v.version} — Data Date: ${App.formatDate(v.dataDate)}`;
+    const selected = version && v.id === version.id ? 'selected' : '';
+    return `<option value="${v.id}" ${selected}>${label}</option>`;
+  }).join('');
+
+  if (versions.length === 0) {
+    sel.innerHTML = '<option value="">No uploads yet</option>';
+  }
+}
+
+function switchVersion(uploadId) {
+  if (!uploadId) return;
+  const { project } = getCurrentVersion();
+  if (!project) return;
+  window.location.href = `project.html?projectId=${project.id}&uploadId=${uploadId}`;
+}
+
+// ────────────────────────────────────────────────────────────────
 // CRITICAL PATH TAB
 // ────────────────────────────────────────────────────────────────
 function renderCriticalPath() {
@@ -462,7 +500,19 @@ function renderCriticalPath() {
   if (!tbody) return;
 
   const { project, version, hasReal } = getCurrentVersion();
+  const EXCL_TYPES = new Set(['TT_LOE', 'TT_WBS']);
   const hasRealCP = hasReal && version.criticalPath && version.criticalPath.longestPath && version.criticalPath.longestPath.length > 0;
+
+  // Version context banner
+  const banner = document.getElementById('cpVersionBanner');
+  if (banner && hasReal && version) {
+    const isDP = (version.criticalPath?.longestPath || []).some(a => a.drivingPath);
+    const method = isDP ? 'P6 Driving Path flag' : 'Total Float ≤ 0';
+    banner.innerHTML = `Viewing: <strong>${version.version || 'Current'}</strong> &nbsp;·&nbsp; Data Date: <strong>${App.formatDate(version.dataDate)}</strong> &nbsp;·&nbsp; <span style="color:#64748b;font-size:11px;">Critical path source: ${method}</span>`;
+    banner.style.display = '';
+  } else if (banner) {
+    banner.style.display = 'none';
+  }
 
   // Update the summary stat cards from real data
   const cpSummaryBadge = document.querySelector('#tab-critical-path .badge.badge-critical');
@@ -473,10 +523,13 @@ function renderCriticalPath() {
     const ar = version.analysisResults || {};
     const rules = ar.rules || [];
 
-    // Longest Path badge
-    if (cpSummaryBadge) cpSummaryBadge.textContent = `Longest Path: ${Math.round(cp.projectDuration || 0)} Working Days`;
+    // Filter LOE/WBS from stored path (guards against data uploaded before the fix)
+    const displayPath = cp.longestPath.filter(a => !EXCL_TYPES.has(a.type));
 
-    // Metric cards: [0] = slippage (no baseline = N/A), [1] = near-critical, [2] = negative float
+    // Longest Path badge
+    if (cpSummaryBadge) cpSummaryBadge.textContent = `Longest Path: ${Math.round(cp.projectDuration || 0)} Working Days · ${displayPath.length} activities`;
+
+    // Metric cards
     if (metricValues[0]) {
       metricValues[0].textContent = 'N/A';
       metricValues[0].className = 'metric-value text-secondary';
@@ -492,8 +545,8 @@ function renderCriticalPath() {
       metricValues[2].textContent = negFloat ? negFloat.count : 0;
     }
 
-    // Table rows
-    tbody.innerHTML = cp.longestPath.map((act, i) => {
+    // Table rows — LOE/WBS already filtered out of displayPath
+    tbody.innerHTML = displayPath.map((act, i) => {
       const isMilestone = act.type === 'TT_Mile' || act.type === 'TT_FinMile' || act.type === 'TT_StartMile' || act.duration === 0;
       const floatVal = act.totalFloat !== undefined ? Math.round(act.totalFloat) : 0;
       const floatClass = floatVal < 0 ? 'text-red font-bold' : floatVal === 0 ? 'text-amber' : 'text-green';
@@ -506,7 +559,7 @@ function renderCriticalPath() {
         <td>${App.formatDate(act.earlyStart)}</td>
         <td>${App.formatDate(act.earlyFinish)}</td>
         <td class="${floatClass}">${floatVal}d</td>
-        <td>${isMilestone ? '<span class="badge badge-info">Milestone</span>' : (act.isCritical ? '<span class="badge badge-critical">Critical</span>' : '<span class="badge badge-medium">Near-Crit</span>')}</td>
+        <td>${isMilestone ? '<span class="badge badge-info">Milestone</span>' : '<span class="badge badge-critical">Critical</span>'}</td>
       </tr>`;
     }).join('');
   } else {
@@ -1045,6 +1098,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await App.whenReady();
   console.log('[project.html] App ready — rendering tabs');
 
+  populateVersionSelector();
   renderCriticalPath();
   renderMilestoneSummary();
   renderVersionHistory();
