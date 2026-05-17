@@ -170,14 +170,30 @@
       <!-- MILESTONES TAB -->
       <div class="tab-pane active" id="comp-milestones">
         <div class="card">
-          <div class="card-header">
+          <div class="card-header" style="flex-wrap:wrap;gap:8px;">
             <h2 class="card-title">Milestone Variance</h2>
-            <div style="display:flex;align-items:center;gap:12px;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
               <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b;cursor:pointer;">
                 <input type="checkbox" id="hideCompletedMilestones" checked onchange="renderMilestoneChanges()" style="accent-color:#7c6fe0;"/>
                 Hide completed
               </label>
               <span class="badge badge-critical" id="milestoneSlippedBadge">—</span>
+              <button class="btn btn-secondary btn-sm" onclick="_expandAllMsWBS()" title="Expand all WBS groups">⊞ Expand All</button>
+              <button class="btn btn-secondary btn-sm" onclick="_collapseAllMsWBS()" title="Collapse all WBS groups">⊟ Collapse All</button>
+              <div style="position:relative;display:inline-block;">
+                <button class="btn btn-secondary btn-sm" id="msExportBtn"
+                  onclick="var m=document.getElementById('msExportMenu');m.style.display=m.style.display==='block'?'none':'block'">
+                  ⬇ Export ▾
+                </button>
+                <div id="msExportMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:4px;z-index:200;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.12);min-width:190px;">
+                  <button onclick="exportMilestonesXlsx('view');document.getElementById('msExportMenu').style.display='none'"
+                    style="display:block;width:100%;text-align:left;padding:7px 12px;background:none;border:none;cursor:pointer;font-size:13px;border-radius:4px;color:#1e1b4b;"
+                    onmouseover="this.style.background='#f1f0fb'" onmouseout="this.style.background='none'">📋 Export Current View</button>
+                  <button onclick="exportMilestonesXlsx('all');document.getElementById('msExportMenu').style.display='none'"
+                    style="display:block;width:100%;text-align:left;padding:7px 12px;background:none;border:none;cursor:pointer;font-size:13px;border-radius:4px;color:#1e1b4b;"
+                    onmouseover="this.style.background='#f1f0fb'" onmouseout="this.style.background='none'">📊 Export All Milestones</button>
+                </div>
+              </div>
             </div>
           </div>
           <table class="data-table mt-4">
@@ -231,8 +247,10 @@
               <tr>
                 <th>Activity ID</th>
                 <th>Activity Name</th>
-                <th>Start (Prior → Current)</th>
-                <th>Finish (Prior → Current)</th>
+                <th style="color:#94a3b8;font-weight:600;">Start — Prior</th>
+                <th>Start — Current</th>
+                <th style="color:#94a3b8;font-weight:600;">Finish — Prior</th>
+                <th>Finish — Current</th>
                 <th>Finish Var.</th>
                 <th>Float Δ</th>
               </tr>
@@ -329,6 +347,8 @@ let _wbsMap = new Map();
 let _cachedActTree  = null;   // { nodeMap: Map, roots: [] } — built once per comparison run
 let _wbsPathCache   = new Map(); // wbsId → "A > B > C" — computed lazily, cleared on new comparison
 let _actFilterTimer = null;   // debounce handle for search input
+let _msVisibleChanges = [];   // milestone changes currently rendered (respects hide-completed)
+let _msAllChanges     = [];   // all milestone changes regardless of hide-completed
 
 document.addEventListener('DOMContentLoaded', async () => {
   await App.whenReady();
@@ -612,29 +632,37 @@ function renderMilestoneChanges() {
   const msHasItems  = node => node.ownItems.length > 0 || node.children.some(msHasItems);
   const msCountItems = node => node.ownItems.length + node.children.reduce((s, c) => s + msCountItems(c), 0);
 
+  // Store for export
+  _msVisibleChanges = visible;
+  _msAllChanges     = changes;
+
   const rows = [];
 
-  const renderMsItem = (r, parentKey, depth) => {
+  const statusLabel = r => {
+    const v = r.variance || 0;
+    return r.isRemoved ? '<span class="badge badge-medium">Removed</span>'
+      : r.isNew        ? '<span class="badge badge-info">New</span>'
+      : r.hasActual    ? '<span class="badge badge-success">Complete</span>'
+      : v > 0          ? '<span class="badge badge-critical">Slipped</span>'
+      : v < 0          ? '<span class="badge badge-low">Recovered</span>'
+      :                  '<span class="badge badge-medium">No Change</span>';
+  };
+
+  const renderMsItem = (r, parentKey, depth, hidden = false) => {
     const pLeft = (depth + 1) * 20 + 8;
     const v = r.variance || 0;
-    const dirClass = r.isRemoved || r.hasActual ? 'text-secondary'
+    const varClass = r.isRemoved || r.hasActual ? 'text-secondary'
       : v > 0 ? 'text-red font-bold' : v < 0 ? 'text-green' : 'text-secondary';
-    const dirLabel = r.isRemoved ? '<span class="badge badge-medium">Removed</span>'
-      : r.isNew  ? '<span class="badge badge-info">New</span>'
-      : r.hasActual ? '<span class="badge badge-success">Complete</span>'
-      : v > 0 ? '<span class="badge badge-critical">Slipped</span>'
-      : v < 0 ? '<span class="badge badge-low">Recovered</span>'
-      : '<span class="badge badge-medium">No Change</span>';
-    rows.push(`<tr data-parent-wbs="${parentKey}">
+    rows.push(`<tr data-parent-wbs="${parentKey}" style="${hidden ? 'display:none;' : ''}">
       <td style="padding-left:${pLeft}px;font-size:13px;"><span style="color:#94a3b8;margin-right:6px;font-size:10px;">◆</span>${r.name}</td>
-      <td>${App.formatDate(r.prevDate) || '—'}</td>
-      <td>${App.formatDate(r.curDate) || '—'}</td>
-      <td class="${dirClass}">${r.variance !== null ? (r.variance > 0 ? '+' : '') + r.variance + 'd' : '—'}</td>
-      <td>${dirLabel}</td>
+      <td style="color:#94a3b8;">${App.formatDate(r.prevDate) || '—'}</td>
+      <td style="color:#1e1b4b;font-weight:500;">${App.formatDate(r.curDate) || '—'}</td>
+      <td class="${varClass}">${r.variance !== null ? (r.variance > 0 ? '+' : '') + r.variance + 'd' : '—'}</td>
+      <td>${statusLabel(r)}</td>
     </tr>`);
   };
 
-  const renderMsNode = (node, depth, parentKey) => {
+  const renderMsNode = (node, depth, parentKey, parentHidden = false) => {
     if (!msHasItems(node)) return;
     const count  = msCountItems(node);
     const key    = 'ms_cmp_' + node.id.replace(/\W/g, '_');
@@ -642,50 +670,48 @@ function renderMilestoneChanges() {
     const bg     = depth === 0 ? '#f1f0fb' : depth === 1 ? '#f8f7fd' : '#fafafa';
     const bw     = Math.max(4 - depth, 2);
     rows.push(`<tr class="wbs-row" data-wbs-id="${key}" data-parent-wbs="${parentKey}"
-      onclick="window._toggleWBS('${key}')" style="cursor:pointer;background:${bg};">
+      onclick="window._toggleWBS('${key}')" style="cursor:pointer;background:${bg};${parentHidden ? 'display:none;' : ''}">
       <td colspan="5" style="padding:7px 8px 7px ${indent + 8}px;border-left:${bw}px solid #7c6fe0;">
-        <span id="arr-${key}" style="display:inline-block;width:14px;font-size:9px;color:#7c6fe0;">▼</span>
+        <span id="arr-${key}" style="display:inline-block;width:14px;font-size:9px;color:#7c6fe0;">▶</span>
         <strong style="font-size:13px;color:#1e1b4b;">${node.name || node.code}</strong>
         <span style="margin-left:8px;font-size:11px;color:#64748b;">${count} change${count !== 1 ? 's' : ''}</span>
+        <button onclick="event.stopPropagation();window._toggleWBS('${key}')"
+          style="float:right;background:none;border:1px solid #c4b5fd;color:#7c6fe0;border-radius:4px;padding:1px 8px;font-size:11px;cursor:pointer;margin-right:4px;"
+          title="Expand/collapse this section">expand</button>
       </td>
     </tr>`);
-    node.children.forEach(child => renderMsNode(child, depth + 1, key));
-    node.ownItems.forEach(r => renderMsItem(r, key, depth));
+    node.children.forEach(child => renderMsNode(child, depth + 1, key, true));
+    node.ownItems.forEach(r => renderMsItem(r, key, depth, true));
   };
 
   const useTree = msRoots.length > 0 && visible.some(r => r.wbsId);
   if (useTree) {
-    msRoots.forEach(r => renderMsNode(r, 0, ''));
+    msRoots.forEach(r => renderMsNode(r, 0, '', false));
     if (msUnassigned.length > 0) {
       const uk = 'ms_cmp_unassigned';
       rows.push(`<tr class="wbs-row" data-wbs-id="${uk}" data-parent-wbs=""
         onclick="window._toggleWBS('${uk}')" style="cursor:pointer;background:#f8fafc;">
         <td colspan="5" style="padding:7px 8px;border-left:2px solid #94a3b8;">
-          <span id="arr-${uk}" style="display:inline-block;width:14px;font-size:9px;color:#94a3b8;">▼</span>
+          <span id="arr-${uk}" style="display:inline-block;width:14px;font-size:9px;color:#94a3b8;">▶</span>
           <strong style="font-size:13px;color:#64748b;">Other Milestones</strong>
           <span style="margin-left:8px;font-size:11px;color:#94a3b8;">${msUnassigned.length}</span>
+          <button onclick="event.stopPropagation();window._toggleWBS('${uk}')"
+            style="float:right;background:none;border:1px solid #cbd5e1;color:#64748b;border-radius:4px;padding:1px 8px;font-size:11px;cursor:pointer;margin-right:4px;">expand</button>
         </td>
       </tr>`);
-      msUnassigned.forEach(r => renderMsItem(r, uk, 0));
+      msUnassigned.forEach(r => renderMsItem(r, uk, 0, true));
     }
   } else {
-    // No WBS data — flat list
     visible.forEach(r => {
       const v = r.variance || 0;
-      const dirClass = r.isRemoved || r.hasActual ? 'text-secondary'
+      const varClass = r.isRemoved || r.hasActual ? 'text-secondary'
         : v > 0 ? 'text-red font-bold' : v < 0 ? 'text-green' : 'text-secondary';
-      const dirLabel = r.isRemoved ? '<span class="badge badge-medium">Removed</span>'
-        : r.isNew  ? '<span class="badge badge-info">New</span>'
-        : r.hasActual ? '<span class="badge badge-success">Complete</span>'
-        : v > 0 ? '<span class="badge badge-critical">Slipped</span>'
-        : v < 0 ? '<span class="badge badge-low">Recovered</span>'
-        : '<span class="badge badge-medium">No Change</span>';
       rows.push(`<tr>
         <td style="font-size:13px;"><span style="color:#94a3b8;margin-right:6px;font-size:10px;">◆</span>${r.name}</td>
-        <td>${App.formatDate(r.prevDate) || '—'}</td>
-        <td>${App.formatDate(r.curDate) || '—'}</td>
-        <td class="${dirClass}">${r.variance !== null ? (r.variance > 0 ? '+' : '') + r.variance + 'd' : '—'}</td>
-        <td>${dirLabel}</td>
+        <td style="color:#94a3b8;">${App.formatDate(r.prevDate) || '—'}</td>
+        <td style="color:#1e1b4b;font-weight:500;">${App.formatDate(r.curDate) || '—'}</td>
+        <td class="${varClass}">${r.variance !== null ? (r.variance > 0 ? '+' : '') + r.variance + 'd' : '—'}</td>
+        <td>${statusLabel(r)}</td>
       </tr>`);
     });
   }
@@ -702,7 +728,7 @@ function renderActivityChanges() {
   const a2 = _v2?.activityLookup || [];
 
   if (a1.length === 0 && a2.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:32px;">No activity data stored for these versions. Re-upload the schedules to capture activity-level details.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:32px;">No activity data stored for these versions. Re-upload the schedules to capture activity-level details.</td></tr>`;
     _allActivityChanges = [];
     return;
   }
@@ -798,7 +824,7 @@ function _renderActivityTree() {
   const hasFilters = !!(document.getElementById('actSearch')?.value || document.getElementById('actTypeFilter')?.value);
 
   if (changes.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:24px;">${
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:24px;">${
       hasFilters ? 'No activities match the current filters.' : 'No activity date changes between these versions.'
     }</td></tr>`;
     return;
@@ -806,7 +832,7 @@ function _renderActivityTree() {
 
   // For large sets show a loading message immediately (lets browser paint before heavy DOM work)
   if (changes.length > 300) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:20px;">
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:20px;">
       Building table for ${changes.length} changes…</td></tr>`;
     setTimeout(() => _doRenderActivityTree(tbody, changes, hasFilters), 0);
   } else {
@@ -835,13 +861,7 @@ function _doRenderActivityTree(tbody, changes, hasFilters) {
   const rows = [];
   const autoExpand = hasFilters;
 
-  const fmtDelta = (prev, cur) => {
-    if (!prev && !cur) return '—';
-    if (!prev) return `<span class="text-green">${App.formatDate(cur)}</span>`;
-    if (!cur)  return `<span class="text-red" style="text-decoration:line-through;">${App.formatDate(prev)}</span>`;
-    if ((prev||'') === (cur||'')) return `<span style="color:#94a3b8;font-size:11px;">${App.formatDate(cur)}</span>`;
-    return `<span style="color:#94a3b8;text-decoration:line-through;font-size:11px;">${App.formatDate(prev)}</span> <strong>${App.formatDate(cur)}</strong>`;
-  };
+  const fmtD = s => s ? App.formatDate(s) : '—';
 
   const renderActItem = (c, parentKey, hidden) => {
     const vd = c.finishVariance;
@@ -850,11 +870,16 @@ function _doRenderActivityTree(tbody, changes, hasFilters) {
     const floatTxt = c.floatDelta !== null ? `${c.floatDelta > 0 ? '+' : ''}${c.floatDelta}d` : '—';
     const floatCls = c.floatDelta !== null ? (c.floatDelta < 0 ? 'text-red' : c.floatDelta > 0 ? 'text-green' : 'text-secondary') : 'text-secondary';
     const rowBg    = c.type==='added' ? 'background:#f0fdf4;' : c.type==='removed' ? 'background:#fff5f5;' : '';
+    // Prior dates: muted grey. Current dates: dark/accent depending on change type.
+    const curColor = c.type==='added' ? '#16a34a' : c.type==='removed' ? '#94a3b8' : '#1e1b4b';
+    const curWeight = c.type==='removed' ? '400' : '500';
     rows.push(`<tr data-parent-wbs="${parentKey}" style="${rowBg}${hidden ? 'display:none;' : ''}">
       <td><code style="font-size:11px;">${c.code}</code></td>
       <td style="font-size:13px;">${c.name || '—'}</td>
-      <td style="font-size:12px;">${fmtDelta(c.priorStart, c.curStart)}</td>
-      <td style="font-size:12px;">${fmtDelta(c.priorFinish, c.curFinish)}</td>
+      <td style="font-size:12px;color:#94a3b8;">${c.type==='added' ? '—' : fmtD(c.priorStart)}</td>
+      <td style="font-size:12px;color:${curColor};font-weight:${curWeight};">${c.type==='removed' ? '—' : fmtD(c.curStart)}</td>
+      <td style="font-size:12px;color:#94a3b8;">${c.type==='added' ? '—' : fmtD(c.priorFinish)}</td>
+      <td style="font-size:12px;color:${curColor};font-weight:${curWeight};">${c.type==='removed' ? '—' : fmtD(c.curFinish)}</td>
       <td class="${varClass}">${varText}</td>
       <td class="${floatCls}">${floatTxt}</td>
     </tr>`);
@@ -871,7 +896,7 @@ function _doRenderActivityTree(tbody, changes, hasFilters) {
     const arrow    = expanded ? '▼' : '▶';
     rows.push(`<tr class="wbs-row" data-wbs-id="${key}" data-parent-wbs="${parentKey}"
       onclick="window._toggleWBS('${key}')" style="cursor:pointer;background:${bg};${parentHidden ? 'display:none;' : ''}">
-      <td colspan="6" style="padding:7px 8px 7px ${indent + 8}px;border-left:${bw}px solid #7c6fe0;">
+      <td colspan="8" style="padding:7px 8px 7px ${indent + 8}px;border-left:${bw}px solid #7c6fe0;">
         <span id="arr-${key}" style="display:inline-block;width:14px;font-size:9px;color:#7c6fe0;">${arrow}</span>
         <strong style="font-size:13px;color:#1e1b4b;">${node.name || node.code}</strong>
         <span style="margin-left:8px;font-size:11px;color:#64748b;">${count} change${count !== 1 ? 's' : ''}</span>
@@ -893,7 +918,7 @@ function _doRenderActivityTree(tbody, changes, hasFilters) {
       const arrow = autoExpand ? '▼' : '▶';
       rows.push(`<tr class="wbs-row" data-wbs-id="${uk}" data-parent-wbs=""
         onclick="window._toggleWBS('${uk}')" style="cursor:pointer;background:#f8fafc;">
-        <td colspan="6" style="padding:7px 8px;border-left:2px solid #94a3b8;">
+        <td colspan="8" style="padding:7px 8px;border-left:2px solid #94a3b8;">
           <span id="arr-${uk}" style="display:inline-block;width:14px;font-size:9px;color:#94a3b8;">${arrow}</span>
           <strong style="font-size:13px;color:#64748b;">Unassigned</strong>
           <span style="margin-left:8px;font-size:11px;color:#94a3b8;">${actUnassigned.length} change${actUnassigned.length !== 1 ? 's' : ''}</span>
@@ -1132,12 +1157,185 @@ function _collapseAllActWBS() {
   });
 }
 
-// Close the export dropdown when clicking anywhere outside it
+// ── Milestone WBS Helpers ─────────────────────────────────────
+
+function _expandAllMsWBS() {
+  const tbody = document.getElementById('milestoneChanges');
+  if (!tbody) return;
+  tbody.querySelectorAll('.wbs-row').forEach(row => {
+    const key = row.getAttribute('data-wbs-id');
+    if (!key) return;
+    const arr = document.getElementById('arr-' + key);
+    if (arr && arr.textContent.trim() === '▶') window._toggleWBS(key);
+  });
+}
+
+function _collapseAllMsWBS() {
+  const tbody = document.getElementById('milestoneChanges');
+  if (!tbody) return;
+  tbody.querySelectorAll('.wbs-row[data-parent-wbs=""]').forEach(row => {
+    const key = row.getAttribute('data-wbs-id');
+    if (!key) return;
+    const arr = document.getElementById('arr-' + key);
+    if (arr && arr.textContent.trim() === '▼') window._toggleWBS(key);
+  });
+}
+
+// ── Milestone Excel Export ────────────────────────────────────
+async function exportMilestonesXlsx(mode) {
+  const changes = mode === 'all' ? _msAllChanges : _msVisibleChanges;
+  if (!changes || changes.length === 0) {
+    App.showAlert('No milestone changes to export.', 'warning');
+    return;
+  }
+
+  if (!window.ExcelJS) {
+    App.showAlert('Loading export library…', 'info');
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('ExcelJS load failed'));
+      document.head.appendChild(s);
+    }).catch(() => { App.showAlert('Could not load export library.', 'error'); throw new Error(); });
+  }
+
+  const projectName   = _compProject?.name || 'Project';
+  const genDate       = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
+  const baselineSel   = document.getElementById('baselineSelect');
+  const currentSel    = document.getElementById('currentSelect');
+  const baselineLabel = baselineSel?.options[baselineSel.selectedIndex]?.text || _v1?.version || 'Baseline';
+  const currentLabel  = currentSel?.options[currentSel.selectedIndex]?.text  || _v2?.version || 'Current';
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Construct Check';
+  wb.created = new Date();
+
+  const ws = wb.addWorksheet('Milestone Changes', { views: [{ state: 'frozen', ySplit: 5 }] });
+
+  const PURPLE       = 'FF7C6FE0';
+  const PURPLE_LIGHT = 'FFF1F0FB';
+  const WHITE        = 'FFFFFFFF';
+  const DARK         = 'FF1E1B4B';
+  const GREY         = 'FF64748B';
+
+  ws.columns = [
+    { key: 'wbsPath',    width: 44 },
+    { key: 'code',       width: 16 },
+    { key: 'name',       width: 52 },
+    { key: 'changeType', width: 14 },
+    { key: 'prevDate',   width: 20 },
+    { key: 'curDate',    width: 20 },
+    { key: 'variance',   width: 20 },
+    { key: 'status',     width: 14 },
+  ];
+
+  ws.mergeCells('A1:H1');
+  Object.assign(ws.getCell('A1'), {
+    value: 'CONSTRUCT CHECK  —  Milestone Comparison Report',
+    font:  { bold: true, size: 14, color: { argb: WHITE }, name: 'Calibri' },
+    fill:  { type: 'pattern', pattern: 'solid', fgColor: { argb: PURPLE } },
+    alignment: { horizontal: 'center', vertical: 'middle' }
+  });
+  ws.getRow(1).height = 30;
+
+  ws.mergeCells('A2:H2');
+  Object.assign(ws.getCell('A2'), {
+    value: `${projectName}   ·   ${baselineLabel}  →  ${currentLabel}   ·   Generated: ${genDate}`,
+    font:  { size: 10, color: { argb: DARK } },
+    fill:  { type: 'pattern', pattern: 'solid', fgColor: { argb: PURPLE_LIGHT } },
+    alignment: { horizontal: 'center', vertical: 'middle' }
+  });
+  ws.getRow(2).height = 20;
+
+  const nSlipped   = _msAllChanges.filter(r => !r.isRemoved && !r.isNew && (r.variance||0) > 0 && !r.hasActual).length;
+  const nRecovered = _msAllChanges.filter(r => !r.isRemoved && !r.isNew && (r.variance||0) < 0).length;
+  ws.mergeCells('A3:H3');
+  Object.assign(ws.getCell('A3'), {
+    value: `Total milestone changes: ${_msAllChanges.length}   (${nSlipped} slipped · ${nRecovered} recovered)${mode==='view' ? `   |   Filtered export: ${changes.length} rows` : ''}`,
+    font:  { size: 9, italic: true, color: { argb: GREY } },
+    alignment: { horizontal: 'left', vertical: 'middle', indent: 1 }
+  });
+  ws.getRow(3).height = 16;
+
+  ws.mergeCells('A4:H4'); ws.getRow(4).height = 4;
+
+  const HEADERS = ['WBS Path', 'Code', 'Milestone Name', 'Change Type', 'Prior Forecast', 'Current Forecast', 'Variance (days)', 'Status'];
+  const headerRow = ws.getRow(5);
+  HEADERS.forEach((h, i) => {
+    const cell = headerRow.getCell(i + 1);
+    cell.value = h;
+    cell.font  = { bold: true, size: 10, color: { argb: WHITE } };
+    cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: PURPLE } };
+    cell.alignment = { horizontal: 'left', vertical: 'middle' };
+  });
+  headerRow.height = 22;
+  ws.autoFilter = { from: 'A5', to: 'H5' };
+
+  const fmtDate = s => {
+    if (!s) return '';
+    const d = new Date(String(s).replace(' ', 'T'));
+    return isNaN(d) ? String(s) : d.toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' });
+  };
+  const TYPE_LABEL = r => r.isRemoved ? 'Removed' : r.isNew ? 'New' : r.hasActual ? 'Completed' : 'Date Changed';
+  const STATUS_LABEL = r => {
+    const v = r.variance || 0;
+    return r.isRemoved ? 'Removed' : r.isNew ? 'New' : r.hasActual ? 'Complete'
+      : v > 0 ? 'Slipped' : v < 0 ? 'Recovered' : 'No Change';
+  };
+  const ALT_FILL   = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF8F7FD' } };
+  const NONE_FILL  = { type:'pattern', pattern:'none' };
+  const RED_FILL   = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFEE2E2' } };
+  const GREEN_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFD1FAE5' } };
+
+  changes.forEach((r, idx) => {
+    const v = r.variance || 0;
+    const row = ws.addRow({
+      wbsPath:    _getActWbsPath(r.wbsId),
+      code:       r.code  || '',
+      name:       r.name  || '',
+      changeType: TYPE_LABEL(r),
+      prevDate:   fmtDate(r.prevDate),
+      curDate:    fmtDate(r.curDate),
+      variance:   r.variance ?? '',
+      status:     STATUS_LABEL(r),
+    });
+    row.height = 15;
+    const fill = r.isRemoved ? RED_FILL : r.isNew ? GREEN_FILL
+               : idx % 2 === 0 ? NONE_FILL : ALT_FILL;
+    row.eachCell({ includeEmpty: true }, (cell, col) => {
+      cell.fill = fill;
+      cell.font = { size: 9 };
+      cell.alignment = { vertical: 'middle' };
+      if (col === 7 && typeof r.variance === 'number' && r.variance !== 0) {
+        cell.font = { size: 9, bold: true,
+          color: { argb: r.variance > 0 ? 'FFDC2626' : 'FF16A34A' } };
+      }
+    });
+  });
+
+  const safeName = projectName.replace(/[^a-z0-9]/gi, '_').replace(/__+/g, '_');
+  const filename  = `ConstructCheck_${safeName}_Milestones_${mode==='all'?'All':'Filtered'}.xlsx`;
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob   = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+  App.showAlert(`Exported ${changes.length} milestones to ${filename}`, 'success');
+}
+
+// Close export dropdowns when clicking anywhere outside
 document.addEventListener('click', e => {
-  const menu = document.getElementById('actExportMenu');
-  const btn  = document.getElementById('actExportBtn');
-  if (menu && !menu.contains(e.target) && e.target !== btn && !btn?.contains(e.target)) {
-    menu.style.display = 'none';
+  const actMenu = document.getElementById('actExportMenu');
+  const actBtn  = document.getElementById('actExportBtn');
+  if (actMenu && !actMenu.contains(e.target) && e.target !== actBtn && !actBtn?.contains(e.target)) {
+    actMenu.style.display = 'none';
+  }
+  const msMenu = document.getElementById('msExportMenu');
+  const msBtn  = document.getElementById('msExportBtn');
+  if (msMenu && !msMenu.contains(e.target) && e.target !== msBtn && !msBtn?.contains(e.target)) {
+    msMenu.style.display = 'none';
   }
 });
 
