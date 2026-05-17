@@ -13,7 +13,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="js/supabase-config.js"></script>
   <script src="js/auth.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/dist/plot.umd.min.js"></script>
 </head>
 <body>
 <div class="app-layout">
@@ -219,7 +219,7 @@
             <h2 class="card-title">Float Distribution Comparison</h2>
           </div>
           <div class="chart-container mt-4" style="height:280px;">
-            <canvas id="floatCompChart"></canvas>
+            <div id="floatCompChart" style="width:100%;height:100%;"></div>
           </div>
           <div class="float-summary-table mt-6">
             <table class="data-table">
@@ -243,7 +243,7 @@
             <h2 class="card-title">Score Category Comparison</h2>
           </div>
           <div class="chart-container mt-4" style="height:280px;">
-            <canvas id="scoreDeltaChart"></canvas>
+            <div id="scoreDeltaChart" style="width:100%;height:100%;"></div>
           </div>
           <table class="data-table mt-4">
             <thead><tr><th>Category</th><th>Prior Score</th><th>Current Score</th><th>Delta</th><th>Trend</th></tr></thead>
@@ -530,46 +530,51 @@ function filterActivityChanges() { /* no-op until full diff is stored */ }
 
 // ── Float Distribution Chart ──────────────────────────────────
 function renderFloatChart() {
-  const canvas = document.getElementById('floatCompChart');
-  if (!canvas || !window.Chart) return;
+  const container = document.getElementById('floatCompChart');
+  if (!container || !window.Plot) return;
 
-  const getNeg    = v => ruleCount(v, 'NEGATIVE_FLOAT');
-  const getNear   = v => ruleCount(v, 'NEAR_CRITICAL_DENSITY');
-  const getHigh   = v => ruleCount(v, 'HIGH_FLOAT');
-  const getCrit   = v => (v?.analysisResults?.criticalCount || 0);
+  const getNeg  = v => ruleCount(v, 'NEGATIVE_FLOAT');
+  const getNear = v => ruleCount(v, 'NEAR_CRITICAL_DENSITY');
+  const getHigh = v => ruleCount(v, 'HIGH_FLOAT');
+  const getCrit = v => (v?.analysisResults?.criticalCount || 0);
 
-  const labels = ['Negative Float', 'Critical (0d)', 'Near-Critical (1–15d)', 'High Float (>44d)'];
+  const cats = ['Negative Float', 'Critical (0d)', 'Near-Critical (1–15d)', 'High Float (>44d)'];
   const d1 = [getNeg(_v1), getCrit(_v1), getNear(_v1), getHigh(_v1)];
   const d2 = [getNeg(_v2), getCrit(_v2), getNear(_v2), getHigh(_v2)];
 
-  // Destroy existing chart if any
-  const existing = Chart.getChart(canvas);
-  if (existing) existing.destroy();
+  const data = cats.flatMap((label, i) => [
+    { label, version: 'Baseline', count: d1[i] },
+    { label, version: 'Current',  count: d2[i] }
+  ]);
 
-  new Chart(canvas, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        { label: _v1.version + ' (Baseline)', data: d1, backgroundColor: 'rgba(100,116,139,0.45)', borderRadius: 4 },
-        { label: _v2.version + ' (Current)',  data: d2, backgroundColor: ['#ef4444cc','#ef4444cc','#f59e0bcc','#22c55ecc'], borderRadius: 4 }
-      ]
+  container.innerHTML = '';
+  container.appendChild(Plot.plot({
+    width:  container.offsetWidth  || 500,
+    height: container.offsetHeight || 280,
+    marginBottom: 8,
+    style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
+    color: {
+      legend: true,
+      domain: ['Baseline', 'Current'],
+      range:  ['#94a3b8',  '#7c6fe0']
     },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'top' } },
-      scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: '#f1f5f9' } } }
-    }
-  });
+    fx: { label: null, padding: 0.2 },
+    x:  { axis: null },
+    y:  { label: 'Activities', grid: true, zero: true },
+    marks: [
+      Plot.barY(data, { fx: 'label', x: 'version', y: 'count', fill: 'version', rx: 4, tip: true }),
+      Plot.ruleY([0])
+    ]
+  }));
 
   // Update float table
   const floatTbody = document.querySelector('.float-summary-table tbody');
   if (floatTbody) {
     const rows = [
-      ['Negative (<0)',          getNeg(_v1),  getNeg(_v2)],
-      ['Critical (0)',           getCrit(_v1), getCrit(_v2)],
-      ['Near-Critical (1–15d)',  getNear(_v1), getNear(_v2)],
-      ['High Float (>44d)',      getHigh(_v1), getHigh(_v2)],
+      ['Negative (<0)',         getNeg(_v1),  getNeg(_v2)],
+      ['Critical (0)',          getCrit(_v1), getCrit(_v2)],
+      ['Near-Critical (1–15d)', getNear(_v1), getNear(_v2)],
+      ['High Float (>44d)',     getHigh(_v1), getHigh(_v2)],
     ];
     floatTbody.innerHTML = rows.map(([label, p, c]) => {
       const d = c - p;
@@ -581,35 +586,36 @@ function renderFloatChart() {
 
 // ── Score Delta Chart ─────────────────────────────────────────
 function renderScoreDeltaChart() {
-  const canvas = document.getElementById('scoreDeltaChart');
-  if (!canvas || !window.Chart) return;
+  const container = document.getElementById('scoreDeltaChart');
+  if (!container || !window.Plot) return;
 
   const catKeys   = ['logicQuality','dateIntegrity','constraintsFloat','activityHygiene','progressRealism','criticalPathReliability'];
   const catLabels = ['Logic Quality','Date Integrity','Constraints & Float','Activity Hygiene','Progress Realism','Critical Path'];
-  const scores1   = catKeys.map(k => catScore(_v1, k) ?? 0);
-  const scores2   = catKeys.map(k => catScore(_v2, k) ?? 0);
 
-  const existing = Chart.getChart(canvas);
-  if (existing) existing.destroy();
+  const data = catKeys.flatMap((k, i) => [
+    { category: catLabels[i], version: 'Baseline', score: catScore(_v1, k) ?? 0 },
+    { category: catLabels[i], version: 'Current',  score: catScore(_v2, k) ?? 0 }
+  ]);
 
-  new Chart(canvas, {
-    type: 'bar',
-    data: {
-      labels: catLabels,
-      datasets: [
-        { label: _v1.version + ' (Baseline)', data: scores1, backgroundColor: 'rgba(100,116,139,0.4)', borderRadius: 4 },
-        { label: _v2.version + ' (Current)',  data: scores2, backgroundColor: 'rgba(14,165,233,0.7)',  borderRadius: 4 }
-      ]
+  container.innerHTML = '';
+  container.appendChild(Plot.plot({
+    width:  container.offsetWidth  || 500,
+    height: container.offsetHeight || 280,
+    marginBottom: 8,
+    style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
+    color: {
+      legend: true,
+      domain: ['Baseline', 'Current'],
+      range:  ['#94a3b8',  '#0ea5e9']
     },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'top' } },
-      scales: {
-        x: { grid: { display: false } },
-        y: { min: 40, max: 100, grid: { color: '#f1f5f9' }, ticks: { color: '#64748b' } }
-      }
-    }
-  });
+    fx: { label: null, padding: 0.2 },
+    x:  { axis: null },
+    y:  { domain: [40, 100], label: 'Score', grid: true },
+    marks: [
+      Plot.barY(data, { fx: 'category', x: 'version', y: 'score', fill: 'version', rx: 4, tip: true }),
+      Plot.ruleY([0])
+    ]
+  }));
 
   // Update score delta table
   const scoreTbody = document.querySelector('#comp-scores .data-table tbody');

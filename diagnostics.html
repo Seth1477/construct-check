@@ -13,7 +13,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="js/supabase-config.js"></script>
   <script src="js/auth.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/dist/plot.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
   /* ── Print-only elements hidden on screen ── */
@@ -220,13 +220,13 @@
           <button class="info-icon-btn" data-info-topic="dcma-plus" title="Learn about DCMA+ scoring"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><circle cx="12" cy="8" r="0.5" fill="currentColor"/></svg></button>
         </div>
         <div class="chart-container" style="height:200px;">
-          <canvas id="categoryChart"></canvas>
+          <div id="categoryChart" style="width:100%;height:100%;"></div>
         </div>
       </div>
       <div class="card">
         <h3 class="card-title mb-4">Issues by Severity</h3>
         <div class="chart-container" style="height:200px;">
-          <canvas id="severityChart"></canvas>
+          <div id="severityChart" style="width:100%;height:100%;"></div>
         </div>
       </div>
     </div>
@@ -302,8 +302,7 @@
 let _diagProject   = null;
 let _diagVersions  = [];   // all real uploaded versions for this project
 let _activeVersion = null; // currently displayed version
-let _catChartInst  = null;
-let _sevChartInst  = null;
+// Observable Plot replaces Chart.js — no instance refs needed
 // Registry: cardIdx → full activities array (avoids huge inline onclick strings)
 const _actRegistry = {};
 
@@ -581,41 +580,58 @@ function resetFilters() {
 
 // ─── Charts ───────────────────────────────────────────────────────────────────
 function renderCharts(diagData) {
-  // Destroy old instances
-  if (_catChartInst) { _catChartInst.destroy(); _catChartInst = null; }
-  if (_sevChartInst) { _sevChartInst.destroy(); _sevChartInst = null; }
+  const catEl = document.getElementById('categoryChart');
+  const sevEl = document.getElementById('severityChart');
+  if (!window.Plot || !diagData || diagData.length === 0) return;
 
-  if (!window.Chart || !diagData || diagData.length === 0) return;
-
-  const catCanvas = document.getElementById('categoryChart');
-  if (catCanvas) {
+  // ── Issues by Category (bar chart) ───────────────────────────
+  if (catEl) {
     const catMap = {};
     diagData.forEach(d => { catMap[d.category] = (catMap[d.category] || 0) + d.count; });
-    const cats   = Object.keys(catMap);
-    const counts = Object.values(catMap);
-    const barColors = ['#ef4444','#f97316','#f59e0b','#10b981','#6366f1','#0ea5e9','#64748b'];
-    _catChartInst = new Chart(catCanvas, {
-      type: 'bar',
-      data: {
-        labels: cats.map(c => c.length > 20 ? c.substring(0,20)+'…' : c),
-        datasets: [{ label: 'Issue Count', data: counts, backgroundColor: cats.map((_,i) => barColors[i % barColors.length]), borderRadius: 6 }]
-      },
-      options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false } }, scales:{ y:{ beginAtZero:true, grid:{ color:'#f1f5f9' } }, x:{ grid:{ display:false }, ticks:{ font:{ size:10 } } } } }
-    });
+    const data = Object.entries(catMap).map(([category, count]) => ({ category, count }));
+    const CAT_COLORS = ['#ef4444','#f97316','#f59e0b','#10b981','#7c6fe0','#0ea5e9','#64748b'];
+    catEl.innerHTML = '';
+    catEl.appendChild(Plot.plot({
+      width:  catEl.offsetWidth  || 400,
+      height: catEl.offsetHeight || 200,
+      marginBottom: 52,
+      style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
+      color: { domain: data.map(d => d.category), range: CAT_COLORS },
+      x: { label: null, tickRotate: -30 },
+      y: { label: 'Issues', grid: true, tickFormat: d => d >= 1000 ? `${(d/1000).toFixed(1)}k` : d },
+      marks: [
+        Plot.barY(data, { x: 'category', y: 'count', fill: 'category', rx: 5, tip: true }),
+        Plot.ruleY([0])
+      ]
+    }));
   }
 
-  const sevCanvas = document.getElementById('severityChart');
-  if (sevCanvas) {
-    const sevs = { critical:0, high:0, medium:0, low:0 };
-    diagData.forEach(d => { if (sevs[d.severity] !== undefined) sevs[d.severity]++; });
-    _sevChartInst = new Chart(sevCanvas, {
-      type: 'doughnut',
-      data: {
-        labels: ['Critical','High','Medium','Low'],
-        datasets: [{ data: Object.values(sevs), backgroundColor:['#ef4444','#f97316','#f59e0b','#0ea5e9'], borderWidth:3, borderColor:'#fff' }]
-      },
-      options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'right', labels:{ font:{ size:12 } } } } }
+  // ── Issues by Severity (horizontal bar) ──────────────────────
+  if (sevEl) {
+    const sevMap = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+    diagData.forEach(d => {
+      const k = d.severity.charAt(0).toUpperCase() + d.severity.slice(1).toLowerCase();
+      if (sevMap[k] !== undefined) sevMap[k]++;
     });
+    const data = Object.entries(sevMap).filter(([,v]) => v > 0).map(([severity, count]) => ({ severity, count }));
+    sevEl.innerHTML = '';
+    sevEl.appendChild(Plot.plot({
+      width:  sevEl.offsetWidth  || 300,
+      height: sevEl.offsetHeight || 200,
+      marginLeft: 68,
+      style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
+      color: {
+        legend: true,
+        domain: ['Critical', 'High', 'Medium', 'Low'],
+        range:  ['#ef4444',  '#f97316', '#f59e0b', '#0ea5e9']
+      },
+      x: { label: 'Issues', grid: true },
+      y: { label: null, domain: ['Critical', 'High', 'Medium', 'Low'] },
+      marks: [
+        Plot.barX(data, { y: 'severity', x: 'count', fill: 'severity', rx: 5, tip: true }),
+        Plot.ruleX([0])
+      ]
+    }));
   }
 }
 
