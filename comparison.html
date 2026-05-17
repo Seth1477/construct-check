@@ -291,34 +291,32 @@
 <script>
 // ── State ─────────────────────────────────────────────────────
 let _compProject = null;
-let _compVersions = [];   // real versions for current project
-let _v1 = null, _v2 = null; // selected baseline / current
+let _compVersions = [];
+let _v1 = null, _v2 = null;
+let _allActivityChanges = [];
 
 document.addEventListener('DOMContentLoaded', async () => {
   await App.whenReady();
 
   _compProject = App._resolveCurrentProject();
   if (_compProject) {
-    // Update breadcrumb
     const bc = document.getElementById('compBreadcrumbLink');
     if (bc) { bc.textContent = _compProject.name; bc.href = `project.html?projectId=${_compProject.id}`; }
     App._injectProjectIdIntoLinks(_compProject);
   }
 
-  // Gather real uploaded versions for this project
+  // Sort versions by data date ascending
   _compVersions = (App.scheduleVersions || [])
     .filter(v => _compProject && v.projectId === _compProject.id && v.isReal)
-    .sort((a, b) => a.id.localeCompare(b.id));
+    .sort((a, b) => new Date(a.dataDate) - new Date(b.dataDate));
 
   const baselineSelect = document.getElementById('baselineSelect');
   const currentSelect  = document.getElementById('currentSelect');
 
   if (_compVersions.length < 2) {
-    // Not enough uploads — show placeholder and lock controls
     const needed = 2 - _compVersions.length;
     baselineSelect.innerHTML = `<option>Need ${needed} more upload${needed !== 1 ? 's' : ''} to compare</option>`;
     currentSelect.innerHTML  = `<option>Need ${needed} more upload${needed !== 1 ? 's' : ''} to compare</option>`;
-    // Show informational message in summary area
     document.getElementById('summaryCards').innerHTML = `
       <div style="grid-column:1/-1;text-align:center;padding:40px 24px;color:#64748b;">
         <div style="font-size:48px;margin-bottom:16px;">📊</div>
@@ -332,15 +330,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // Populate dropdowns
-  _compVersions.forEach((v, i) => {
+  _compVersions.forEach(v => {
     const label = `${v.version} — ${App.formatDate(v.dataDate)} (Score: ${v.overallScore})`;
     baselineSelect.appendChild(new Option(label, v.id));
     currentSelect.appendChild(new Option(label, v.id));
   });
-  // Default: oldest as baseline, newest as current
   baselineSelect.value = _compVersions[0].id;
   currentSelect.value  = _compVersions[_compVersions.length - 1].id;
+
+  // Re-render charts when their tab becomes visible (charts fail at 0-width)
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      if (tab === 'comp-float')  setTimeout(renderFloatChart,      50);
+      if (tab === 'comp-scores') setTimeout(renderScoreDeltaChart, 50);
+    });
+  });
 
   runComparison();
 });
@@ -354,6 +359,22 @@ function ruleCount(version, ruleKey) {
 }
 function catScore(version, catKey) {
   return version?.categoryScores?.[catKey]?.score ?? null;
+}
+
+// Count activities by float bucket directly from activityLookup
+function floatBuckets(version) {
+  const acts = version?.activityLookup || [];
+  const result = { negative: 0, critical: 0, nearCritical: 0, lowFloat: 0, highFloat: 0 };
+  acts.forEach(a => {
+    const f = typeof a.totalFloat === 'number' ? a.totalFloat : null;
+    if (f === null) return;
+    if (f < 0)       result.negative++;
+    else if (f === 0) result.critical++;
+    else if (f <= 15) result.nearCritical++;
+    else if (f <= 44) result.lowFloat++;
+    else              result.highFloat++;
+  });
+  return result;
 }
 
 // ── Run Comparison ───────────────────────────────────────────
@@ -372,20 +393,26 @@ function runComparison() {
   renderActivityStats();
   renderMilestoneChanges();
   renderActivityChanges();
-  renderFloatChart();
-  renderScoreDeltaChart();
   renderNarrative();
+
+  // Charts only render correctly when their tab is visible — render the active one now
+  const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+  if (activeTab === 'comp-float')  renderFloatChart();
+  if (activeTab === 'comp-scores') renderScoreDeltaChart();
+  // Always pre-render score delta (it's often the first chart users click)
+  setTimeout(renderFloatChart,      80);
+  setTimeout(renderScoreDeltaChart, 80);
+
   App.showAlert(`Comparing ${_v1.version} vs ${_v2.version}`, 'success');
 }
 
 // ── Summary Delta Cards ───────────────────────────────────────
 function renderSummaryCards() {
   const scoreChange   = (_v2.overallScore || 0) - (_v1.overallScore || 0);
-  const negFloat1     = ruleCount(_v1, 'NEGATIVE_FLOAT');
-  const negFloat2     = ruleCount(_v2, 'NEGATIVE_FLOAT');
-  const negFloatDelta = negFloat2 - negFloat1;
+  const b1 = floatBuckets(_v1);
+  const b2 = floatBuckets(_v2);
+  const negFloatDelta = b2.negative - b1.negative;
 
-  // Finish date movement (calendar days)
   let finishDeltaDays = null;
   let finishCtx = 'No planned finish recorded';
   if (_v1.plannedFinish && _v2.plannedFinish) {
@@ -393,7 +420,6 @@ function renderSummaryCards() {
     finishCtx = `${App.formatDate(_v1.plannedFinish)} → ${App.formatDate(_v2.plannedFinish)}`;
   }
 
-  // CP duration change
   const cp1 = _v1.criticalPath?.projectDuration || null;
   const cp2 = _v2.criticalPath?.projectDuration || null;
   const cpSlip = (cp1 !== null && cp2 !== null) ? Math.round(cp2 - cp1) : null;
@@ -431,7 +457,7 @@ function renderSummaryCards() {
         ${negFloatDelta > 0 ? '+' : ''}${negFloatDelta}
       </div>
       <div class="delta-label">Negative Float Delta</div>
-      <div class="delta-context">${negFloat1} → ${negFloat2} activities</div>
+      <div class="delta-context">${b1.negative} → ${b2.negative} activities</div>
     </div>`;
 }
 
@@ -440,13 +466,14 @@ function renderActivityStats() {
   const actDelta  = (_v2.activityCount || 0) - (_v1.activityCount || 0);
   const relDelta  = (_v2.relationshipCount || 0) - (_v1.relationshipCount || 0);
   const milDelta  = (_v2.milestoneCount || 0) - (_v1.milestoneCount || 0);
-  const negDelta  = ruleCount(_v2, 'NEGATIVE_FLOAT') - ruleCount(_v1, 'NEGATIVE_FLOAT');
+  const b1 = floatBuckets(_v1);
+  const b2 = floatBuckets(_v2);
+  const negDelta  = b2.negative - b1.negative;
   const fmt = n => (n > 0 ? '+' : '') + n;
   const cls = n => n > 0 ? 'text-red' : n < 0 ? 'text-green' : 'text-secondary';
 
-  // Find the grid-4 after summaryCards
   const rows = document.querySelectorAll('.grid-4.gap-4.mb-6');
-  const statsRow = rows[1]; // second grid-4 is the stats row
+  const statsRow = rows[1];
   if (!statsRow) return;
   statsRow.innerHTML = `
     <div class="stat-mini card">
@@ -463,7 +490,7 @@ function renderActivityStats() {
     </div>
     <div class="stat-mini card">
       <div class="stat-mini-value ${cls(negDelta)}">${fmt(negDelta)}</div>
-      <div class="stat-mini-label">Neg. Float (${ruleCount(_v1, 'NEGATIVE_FLOAT')} → ${ruleCount(_v2, 'NEGATIVE_FLOAT')})</div>
+      <div class="stat-mini-label">Neg. Float (${b1.negative} → ${b2.negative})</div>
     </div>`;
 }
 
@@ -478,11 +505,10 @@ function renderMilestoneChanges() {
 
   if (m1.length === 0 && m2.length === 0) {
     if (badge) badge.textContent = 'No milestones stored';
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">Milestone details are stored on the first 40 milestones per upload. Upload new schedules to populate this tab.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">No milestone data stored for these versions.</td></tr>`;
     return;
   }
 
-  // Match milestones by name between versions
   const rows = [];
   m2.forEach(cur => {
     const prev = m1.find(p => p.name === cur.name || p.code === cur.code);
@@ -493,8 +519,10 @@ function renderMilestoneChanges() {
       variance = Math.round((new Date(curDate) - new Date(prevDate)) / 86400000);
     }
     const hasActual = !!cur.actualFinish;
-    rows.push({ name: cur.name, prevDate, curDate, variance, hasActual, isCritical: cur.totalFloat <= 0 });
+    rows.push({ name: cur.name, prevDate, curDate, variance, hasActual });
   });
+
+  rows.sort((a, b) => (b.variance || 0) - (a.variance || 0));
 
   const slipped = rows.filter(r => r.variance > 0 && !r.hasActual).length;
   if (badge) badge.textContent = slipped > 0 ? `${slipped} milestone${slipped !== 1 ? 's' : ''} slipped` : 'No slippage detected';
@@ -509,7 +537,7 @@ function renderMilestoneChanges() {
       <td><strong>${r.name}</strong></td>
       <td>${App.formatDate(r.prevDate) || '—'}</td>
       <td>${App.formatDate(r.curDate) || '—'}</td>
-      <td class="${dirClass}">${r.variance !== null ? (r.variance > 0 ? '+' : '') + r.variance + 'd' : 'N/A'}</td>
+      <td class="${dirClass}">${r.variance !== null ? (r.variance > 0 ? '+' : '') + r.variance + 'd' : '—'}</td>
       <td>${dirLabel}</td>
     </tr>`;
   }).join('') || `<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">No matching milestones found between versions.</td></tr>`;
@@ -519,50 +547,177 @@ function renderMilestoneChanges() {
 function renderActivityChanges() {
   const tbody = document.getElementById('activityChanges');
   if (!tbody) return;
-  // We don't store full activity lists — only IDs from rules. Show a note.
-  tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:32px;">
-    <strong>Activity-level diff requires full XER data.</strong><br/>
-    Key changes are summarized in the Summary Cards and Score Delta tabs above.
-  </td></tr>`;
+
+  const a1 = _v1?.activityLookup || [];
+  const a2 = _v2?.activityLookup || [];
+
+  if (a1.length === 0 && a2.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:32px;">No activity data stored for these versions. Re-upload the schedules to capture activity-level details.</td></tr>`;
+    _allActivityChanges = [];
+    return;
+  }
+
+  const map1 = new Map(a1.map(a => [a.id, a]));
+  const ids1 = new Set(a1.map(a => a.id));
+  const ids2 = new Set(a2.map(a => a.id));
+
+  const changes = [];
+
+  // Added activities (in v2, not in v1)
+  a2.filter(a => !ids1.has(a.id)).forEach(a => {
+    changes.push({
+      type: 'added', code: a.code || a.id, name: a.name,
+      priorStart: null, newStart: a.earlyStart || a.plannedStart,
+      priorFinish: null, newFinish: a.earlyFinish || a.plannedFinish,
+      finishVariance: null, floatDelta: null
+    });
+  });
+
+  // Removed activities (in v1, not in v2)
+  a1.filter(a => !ids2.has(a.id)).forEach(a => {
+    changes.push({
+      type: 'removed', code: a.code || a.id, name: a.name,
+      priorStart: a.earlyStart || a.plannedStart, newStart: null,
+      priorFinish: a.earlyFinish || a.plannedFinish, newFinish: null,
+      finishVariance: null, floatDelta: null
+    });
+  });
+
+  // Changed activities (in both, with different dates or float)
+  a2.filter(a => ids1.has(a.id)).forEach(a => {
+    const prev = map1.get(a.id);
+    const prevStart  = prev.earlyStart  || prev.plannedStart  || '';
+    const curStart   = a.earlyStart     || a.plannedStart     || '';
+    const prevFinish = prev.earlyFinish || prev.plannedFinish || '';
+    const curFinish  = a.earlyFinish    || a.plannedFinish    || '';
+
+    const startChanged  = prevStart  !== curStart;
+    const finishChanged = prevFinish !== curFinish;
+    if (!startChanged && !finishChanged) return;
+
+    let finishVariance = null;
+    if (prevFinish && curFinish) {
+      finishVariance = Math.round((new Date(curFinish) - new Date(prevFinish)) / 86400000);
+    }
+    const floatDelta = (typeof a.totalFloat === 'number' && typeof prev.totalFloat === 'number')
+      ? (a.totalFloat - prev.totalFloat) : null;
+
+    changes.push({
+      type: 'changed', code: a.code || a.id, name: a.name,
+      priorStart, curStart, priorFinish, curFinish,
+      finishVariance, floatDelta
+    });
+  });
+
+  // Sort: biggest finish slippage first, recoveries last, then added/removed
+  changes.sort((a, b) => {
+    if (a.type === 'removed' && b.type !== 'removed') return 1;
+    if (b.type === 'removed' && a.type !== 'removed') return -1;
+    const va = a.finishVariance ?? 0;
+    const vb = b.finishVariance ?? 0;
+    return vb - va;
+  });
+
+  _allActivityChanges = changes;
+  _renderActivityRows(changes.slice(0, 300));
+
+  // Update header with count
+  const titleEl = document.querySelector('#comp-activities .card-title');
+  const changed = changes.filter(c => c.type === 'changed').length;
+  const added   = changes.filter(c => c.type === 'added').length;
+  const removed = changes.filter(c => c.type === 'removed').length;
+  if (titleEl) {
+    let next = titleEl.nextElementSibling;
+    if (next && next.tagName === 'INPUT') next = null;
+    const badgeHtml = `<span class="badge badge-medium" style="margin-left:8px;">${changed} changed · ${added} added · ${removed} removed</span>`;
+    if (!document.getElementById('actChangeBadge')) {
+      titleEl.insertAdjacentHTML('afterend', `<span id="actChangeBadge">${badgeHtml.replace('<span','<span id="actChangeBadge"')}</span>`);
+    } else {
+      document.getElementById('actChangeBadge').innerHTML = `${changed} changed · ${added} added · ${removed} removed`;
+    }
+  }
 }
 
-function filterActivityChanges() { /* no-op until full diff is stored */ }
+function _renderActivityRows(changes) {
+  const tbody = document.getElementById('activityChanges');
+  if (!tbody) return;
+
+  if (changes.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:24px;">No activity date changes between these versions.</td></tr>`;
+    return;
+  }
+
+  const fmtDelta = (prev, cur) => {
+    if (!prev && !cur) return '—';
+    if (!prev) return `<span class="text-green">New: ${App.formatDate(cur)}</span>`;
+    if (!cur)  return `<span class="text-red">Removed: ${App.formatDate(prev)}</span>`;
+    if (prev === cur) return App.formatDate(cur);
+    return `<span style="color:#94a3b8;text-decoration:line-through;font-size:11px;">${App.formatDate(prev)}</span><br/><strong>${App.formatDate(cur)}</strong>`;
+  };
+
+  tbody.innerHTML = changes.map(c => {
+    const varDays  = c.finishVariance;
+    const varClass = varDays > 0 ? 'text-red font-bold' : varDays < 0 ? 'text-green' : 'text-secondary';
+    const varText  = varDays !== null ? `${varDays > 0 ? '+' : ''}${varDays}d` : '—';
+    const floatTxt = c.floatDelta !== null ? `${c.floatDelta > 0 ? '+' : ''}${c.floatDelta}d` : '—';
+    const floatCls = c.floatDelta < 0 ? 'text-red' : c.floatDelta > 0 ? 'text-green' : 'text-secondary';
+    const rowBg    = c.type === 'added' ? 'background:#f0fdf4;' : c.type === 'removed' ? 'background:#fff5f5;' : '';
+    return `<tr style="${rowBg}">
+      <td><code style="font-size:11px;">${c.code}</code></td>
+      <td style="max-width:260px;">${c.name || '—'}</td>
+      <td style="font-size:12px;">${fmtDelta(c.priorStart, c.curStart)}</td>
+      <td style="font-size:12px;">${fmtDelta(c.priorFinish, c.curFinish)}</td>
+      <td class="${varClass}">${varText}</td>
+      <td class="${floatCls}">${floatTxt}</td>
+    </tr>`;
+  }).join('');
+}
+
+function filterActivityChanges() {
+  const q = (document.getElementById('actSearch')?.value || '').toLowerCase().trim();
+  if (!q) { _renderActivityRows(_allActivityChanges.slice(0, 300)); return; }
+  const filtered = _allActivityChanges.filter(c =>
+    (c.name || '').toLowerCase().includes(q) ||
+    (c.code || '').toLowerCase().includes(q)
+  );
+  _renderActivityRows(filtered.slice(0, 300));
+}
 
 // ── Float Distribution Chart ──────────────────────────────────
 function renderFloatChart() {
   const container = document.getElementById('floatCompChart');
   if (!container || !window.Plot) return;
 
-  const getNeg  = v => ruleCount(v, 'NEGATIVE_FLOAT');
-  const getNear = v => ruleCount(v, 'NEAR_CRITICAL_DENSITY');
-  const getHigh = v => ruleCount(v, 'HIGH_FLOAT');
-  const getCrit = v => (v?.analysisResults?.criticalCount || 0);
+  const b1 = floatBuckets(_v1);
+  const b2 = floatBuckets(_v2);
 
-  const cats = ['Negative Float', 'Critical (0d)', 'Near-Critical (1–15d)', 'High Float (>44d)'];
-  const d1 = [getNeg(_v1), getCrit(_v1), getNear(_v1), getHigh(_v1)];
-  const d2 = [getNeg(_v2), getCrit(_v2), getNear(_v2), getHigh(_v2)];
+  const cats = [
+    { label: 'Negative (<0)',    p: b1.negative,    c: b2.negative    },
+    { label: 'Critical (0d)',    p: b1.critical,    c: b2.critical    },
+    { label: 'Near-Crit (1–15d)',p: b1.nearCritical,c: b2.nearCritical},
+    { label: 'Low Float (16–44d)',p:b1.lowFloat,    c: b2.lowFloat    },
+    { label: 'High Float (>44d)',p: b1.highFloat,   c: b2.highFloat   },
+  ];
 
-  const data = cats.flatMap((label, i) => [
-    { label, version: 'Baseline', count: d1[i] },
-    { label, version: 'Current',  count: d2[i] }
+  const data = cats.flatMap(row => [
+    { label: row.label, version: _v1.version, count: row.p },
+    { label: row.label, version: _v2.version, count: row.c }
   ]);
 
+  const w = container.closest('.chart-container')?.offsetWidth || container.parentElement?.offsetWidth || 640;
   container.innerHTML = '';
   container.appendChild(Plot.plot({
-    width:  container.offsetWidth  || 500,
-    height: container.offsetHeight || 280,
-    marginBottom: 8,
+    width: w - 32,
+    height: 240,
+    marginBottom: 40,
+    marginLeft: 50,
     style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
-    color: {
-      legend: true,
-      domain: ['Baseline', 'Current'],
-      range:  ['#94a3b8',  '#7c6fe0']
-    },
+    color: { legend: true, domain: [_v1.version, _v2.version], range: ['#94a3b8', '#7c6fe0'] },
     fx: { label: null, padding: 0.2 },
     x:  { axis: null },
     y:  { label: 'Activities', grid: true, zero: true },
     marks: [
-      Plot.barY(data, { fx: 'label', x: 'version', y: 'count', fill: 'version', rx: 4, tip: true }),
+      Plot.barY(data, { fx: 'label', x: 'version', y: 'count', fill: 'version', rx: 3, tip: true }),
       Plot.ruleY([0])
     ]
   }));
@@ -570,16 +725,15 @@ function renderFloatChart() {
   // Update float table
   const floatTbody = document.querySelector('.float-summary-table tbody');
   if (floatTbody) {
-    const rows = [
-      ['Negative (<0)',         getNeg(_v1),  getNeg(_v2)],
-      ['Critical (0)',          getCrit(_v1), getCrit(_v2)],
-      ['Near-Critical (1–15d)', getNear(_v1), getNear(_v2)],
-      ['High Float (>44d)',     getHigh(_v1), getHigh(_v2)],
-    ];
-    floatTbody.innerHTML = rows.map(([label, p, c]) => {
-      const d = c - p;
+    floatTbody.innerHTML = cats.map(row => {
+      const d = row.c - row.p;
       const cls = d > 0 ? 'text-red' : d < 0 ? 'text-green' : 'text-secondary';
-      return `<tr><td>${label}</td><td>${p}</td><td class="${d !== 0 ? cls + ' font-bold' : ''}">${c}</td><td class="${cls}">${d > 0 ? '+' : ''}${d} ${d > 0 ? '↑' : d < 0 ? '↓' : '–'}</td></tr>`;
+      return `<tr>
+        <td>${row.label}</td>
+        <td>${row.p}</td>
+        <td class="${d !== 0 ? cls + ' font-bold' : ''}">${row.c}</td>
+        <td class="${cls}">${d > 0 ? '+' : ''}${d} ${d > 0 ? '↑' : d < 0 ? '↓' : '–'}</td>
+      </tr>`;
     }).join('');
   }
 }
@@ -590,45 +744,46 @@ function renderScoreDeltaChart() {
   if (!container || !window.Plot) return;
 
   const catKeys   = ['logicQuality','dateIntegrity','constraintsFloat','activityHygiene','progressRealism','criticalPathReliability'];
-  const catLabels = ['Logic Quality','Date Integrity','Constraints & Float','Activity Hygiene','Progress Realism','Critical Path'];
+  const catLabels = ['Logic','Date Integrity','Constraints','Activity Hygiene','Progress','Critical Path'];
 
   const data = catKeys.flatMap((k, i) => [
-    { category: catLabels[i], version: 'Baseline', score: catScore(_v1, k) ?? 0 },
-    { category: catLabels[i], version: 'Current',  score: catScore(_v2, k) ?? 0 }
+    { category: catLabels[i], version: _v1.version, score: catScore(_v1, k) ?? 0 },
+    { category: catLabels[i], version: _v2.version, score: catScore(_v2, k) ?? 0 }
   ]);
 
+  const allScores = data.map(d => d.score).filter(s => s > 0);
+  const minY = allScores.length ? Math.max(0, Math.min(...allScores) - 10) : 0;
+
+  const w = container.closest('.chart-container')?.offsetWidth || container.parentElement?.offsetWidth || 640;
   container.innerHTML = '';
   container.appendChild(Plot.plot({
-    width:  container.offsetWidth  || 500,
-    height: container.offsetHeight || 280,
-    marginBottom: 8,
+    width: w - 32,
+    height: 240,
+    marginBottom: 40,
+    marginLeft: 50,
     style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
-    color: {
-      legend: true,
-      domain: ['Baseline', 'Current'],
-      range:  ['#94a3b8',  '#0ea5e9']
-    },
+    color: { legend: true, domain: [_v1.version, _v2.version], range: ['#94a3b8', '#0ea5e9'] },
     fx: { label: null, padding: 0.2 },
     x:  { axis: null },
-    y:  { domain: [40, 100], label: 'Score', grid: true },
+    y:  { domain: [minY, 100], label: 'Score', grid: true },
     marks: [
-      Plot.barY(data, { fx: 'category', x: 'version', y: 'score', fill: 'version', rx: 4, tip: true }),
+      Plot.barY(data, { fx: 'category', x: 'version', y: 'score', fill: 'version', rx: 3, tip: true }),
       Plot.ruleY([0])
     ]
   }));
 
-  // Update score delta table
+  // Update score table
   const scoreTbody = document.querySelector('#comp-scores .data-table tbody');
   if (scoreTbody) {
     const rows = catKeys.map((k, i) => {
-      const p = catScore(_v1, k) ?? '—';
-      const c = catScore(_v2, k) ?? '—';
-      const d = (typeof c === 'number' && typeof p === 'number') ? c - p : null;
+      const p = catScore(_v1, k);
+      const c = catScore(_v2, k);
+      const d = (p !== null && c !== null) ? c - p : null;
       const cls = d !== null ? (d < 0 ? 'text-red' : d > 0 ? 'text-green' : 'text-secondary') : '';
       return `<tr>
         <td>${catLabels[i]}</td>
-        <td>${p}</td>
-        <td class="${cls}">${c}</td>
+        <td>${p ?? '—'}</td>
+        <td class="${cls}">${c ?? '—'}</td>
         <td class="${cls}">${d !== null ? (d > 0 ? '+' : '') + d : '—'}</td>
         <td>${d !== null ? (d < 0 ? '↓' : d > 0 ? '↑' : '–') : '—'}</td>
       </tr>`;
@@ -651,12 +806,17 @@ function renderNarrative() {
   const el = document.getElementById('compNarrativeBody');
   if (!el || !_v1 || !_v2) return;
 
-  const scoreChange   = (_v2.overallScore || 0) - (_v1.overallScore || 0);
-  const negDelta      = ruleCount(_v2, 'NEGATIVE_FLOAT') - ruleCount(_v1, 'NEGATIVE_FLOAT');
-  const openEndDelta  = ruleCount(_v2, 'OPEN_ENDS_PREDECESSOR') - ruleCount(_v1, 'OPEN_ENDS_PREDECESSOR');
-  const actDelta      = (_v2.activityCount || 0) - (_v1.activityCount || 0);
-  const scoreDir      = scoreChange > 0 ? 'improved' : scoreChange < 0 ? 'declined' : 'remained stable';
-  const ragLabel      = _v2.overallScore >= 85 ? 'Green' : _v2.overallScore >= 70 ? 'Amber' : 'Red';
+  const scoreChange  = (_v2.overallScore || 0) - (_v1.overallScore || 0);
+  const b1 = floatBuckets(_v1);
+  const b2 = floatBuckets(_v2);
+  const negDelta     = b2.negative - b1.negative;
+  const openEndDelta = ruleCount(_v2, 'OPEN_ENDS_PREDECESSOR') - ruleCount(_v1, 'OPEN_ENDS_PREDECESSOR');
+  const actDelta     = (_v2.activityCount || 0) - (_v1.activityCount || 0);
+  const scoreDir     = scoreChange > 0 ? 'improved' : scoreChange < 0 ? 'declined' : 'remained stable';
+  const ragLabel     = _v2.overallScore >= 85 ? 'Green' : _v2.overallScore >= 70 ? 'Amber' : 'Red';
+
+  const slippedActs = _allActivityChanges.filter(c => c.type === 'changed' && c.finishVariance > 0)
+    .slice(0, 5);
 
   el.innerHTML = `
     <p>This comparison covers <strong>${_v1.version}</strong> (Data Date: ${App.formatDate(_v1.dataDate)}) to <strong>${_v2.version}</strong> (Data Date: ${App.formatDate(_v2.dataDate)}) for the <strong>${_compProject?.name || 'project'}</strong>.</p>
@@ -665,11 +825,18 @@ function renderNarrative() {
     <p>The overall score <strong>${scoreDir}</strong> by ${Math.abs(scoreChange)} point${Math.abs(scoreChange) !== 1 ? 's' : ''} from <strong>${_v1.overallScore}</strong> to <strong>${_v2.overallScore}</strong>, placing the schedule in the <strong>${ragLabel}</strong> range.</p>
 
     <h4 style="margin:16px 0 8px;">Key Changes</h4>
-    <p>${actDelta !== 0 ? `The schedule ${actDelta > 0 ? 'added' : 'removed'} ${Math.abs(actDelta)} activities (${_v1.activityCount} → ${_v2.activityCount}). ` : ''}${negDelta > 0 ? `<strong class="text-red">${negDelta} additional negative float activities</strong> emerged, indicating growing schedule pressure. ` : negDelta < 0 ? `Negative float activities decreased by ${Math.abs(negDelta)}, a positive sign. ` : ''}${openEndDelta > 0 ? `Open-end logic gaps increased by ${openEndDelta}, which should be addressed promptly.` : openEndDelta < 0 ? `Open-end logic gaps decreased by ${Math.abs(openEndDelta)}, improving schedule integrity.` : ''}</p>
+    <p>${actDelta !== 0 ? `The schedule ${actDelta > 0 ? 'added' : 'removed'} ${Math.abs(actDelta)} activities (${_v1.activityCount} → ${_v2.activityCount}). ` : ''}${negDelta > 0 ? `<strong class="text-red">${negDelta} additional negative float activities</strong> emerged (${b1.negative} → ${b2.negative}), indicating growing schedule pressure. ` : negDelta < 0 ? `Negative float activities decreased by ${Math.abs(negDelta)} (${b1.negative} → ${b2.negative}), a positive sign. ` : `Negative float activity count held steady at ${b2.negative}. `}${openEndDelta > 0 ? `Open-end logic gaps increased by ${openEndDelta}.` : openEndDelta < 0 ? `Open-end logic gaps decreased by ${Math.abs(openEndDelta)}, improving schedule integrity.` : ''}</p>
+
+    ${slippedActs.length > 0 ? `
+    <h4 style="margin:16px 0 8px;">Top Finish Date Slippage</h4>
+    <p>The following activities experienced the most significant finish date movement:</p>
+    <ul style="margin:8px 0 8px 20px;font-size:14px;line-height:1.8;">
+      ${slippedActs.map(c => `<li><strong>${c.code}</strong> — ${c.name || ''}: <span class="text-red">+${c.finishVariance}d</span> (${App.formatDate(c.priorFinish)} → ${App.formatDate(c.curFinish)})</li>`).join('')}
+    </ul>` : ''}
 
     <h4 style="margin:16px 0 8px;">Recommended Actions</h4>
     <p>${[
-      negDelta > 0 ? `Investigate and resolve the ${ruleCount(_v2, 'NEGATIVE_FLOAT')} negative float activities` : null,
+      negDelta > 0 ? `Investigate and resolve the ${b2.negative} negative float activities` : null,
       openEndDelta > 0 ? `Close the ${ruleCount(_v2, 'OPEN_ENDS_PREDECESSOR')} open predecessor logic gaps` : null,
       'Confirm the data date is set correctly before the next update',
       'Review constraint changes that may be masking critical path issues'
@@ -677,25 +844,31 @@ function renderNarrative() {
   `;
 }
 
+// ── Export ───────────────────────────────────────────────────
 function exportComparison() {
-  const project      = App._resolveCurrentProject?.() || App.projects?.[0];
-  const projectName  = project?.name || 'Project';
+  const projectName  = _compProject?.name || 'Project';
   const genDate      = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
-
   const baselineSel  = document.getElementById('baselineSelect');
   const currentSel   = document.getElementById('currentSelect');
-  const baselineLabel = baselineSel?.options[baselineSel.selectedIndex]?.text || 'Baseline';
-  const currentLabel  = currentSel?.options[currentSel.selectedIndex]?.text  || 'Current';
+  const baselineLabel = baselineSel?.options[baselineSel.selectedIndex]?.text || _v1?.version || 'Baseline';
+  const currentLabel  = currentSel?.options[currentSel.selectedIndex]?.text  || _v2?.version || 'Current';
 
-  const narrative    = document.querySelector('.narrative-body')?.innerHTML || '<p>No narrative available.</p>';
-  const milestoneRows = document.querySelector('#milestoneChanges')?.innerHTML || '<tr><td colspan="5">No data</td></tr>';
-  const activityRows  = document.querySelector('#activityChanges')?.innerHTML  || '<tr><td colspan="6">No data</td></tr>';
+  const narrative    = document.getElementById('compNarrativeBody')?.innerHTML || '<p>No narrative available.</p>';
+  const milestoneRows = document.getElementById('milestoneChanges')?.innerHTML  || '<tr><td colspan="5">No data</td></tr>';
+  const activityRows  = document.getElementById('activityChanges')?.innerHTML   || '<tr><td colspan="6">No data</td></tr>';
 
-  const getVal = id => document.querySelector(`#${id} .stat-value`)?.textContent || '—';
-  const finishMov = getVal('finishMovement');
-  const cpSlip    = getVal('cpSlip');
-  const scoreChg  = getVal('scoreChange');
-  const negFloat  = getVal('negFloatDelta');
+  const scoreChange   = ((_v2?.overallScore || 0) - (_v1?.overallScore || 0));
+  const b1 = floatBuckets(_v1);
+  const b2 = floatBuckets(_v2);
+  const negDelta = b2.negative - b1.negative;
+  let finishDeltaText = 'N/A';
+  if (_v1?.plannedFinish && _v2?.plannedFinish) {
+    const d = Math.round((new Date(_v2.plannedFinish) - new Date(_v1.plannedFinish)) / 86400000);
+    finishDeltaText = (d > 0 ? '+' : '') + d + 'd';
+  }
+  const cp1 = _v1?.criticalPath?.projectDuration;
+  const cp2 = _v2?.criticalPath?.projectDuration;
+  const cpText = (cp1 && cp2) ? (cp2 - cp1 > 0 ? '+' : '') + Math.round(cp2 - cp1) + 'd' : 'N/A';
 
   const win = window.open('', '_blank');
   if (!win) { App.showAlert('Pop-up blocked — please allow pop-ups for this site.', 'error'); return; }
@@ -719,22 +892,17 @@ function exportComparison() {
     .header-meta .sub { font-size:9pt; color:#64748b; margin-top:2pt; }
     .summary-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8pt; margin-bottom:14pt; }
     .stat-box { border:1px solid #e2e8f0; border-radius:5pt; padding:8pt 10pt; text-align:center; }
-    .stat-label { font-size:7.5pt; color:#64748b; text-transform:uppercase; font-weight:700; letter-spacing:0.05em; }
+    .stat-label { font-size:7.5pt; color:#64748b; text-transform:uppercase; font-weight:700; }
     .stat-val { font-size:15pt; font-weight:800; color:#ef4444; margin-top:2pt; }
     h2 { font-size:10pt; font-weight:700; color:#1e1b4b; text-transform:uppercase; letter-spacing:0.05em; border-bottom:1px solid #e2e8f0; padding-bottom:4pt; margin:14pt 0 8pt; }
     p { margin-bottom:7pt; font-size:9.5pt; }
     h4 { font-size:9.5pt; font-weight:700; margin:10pt 0 4pt; }
-    table { width:100%; border-collapse:collapse; font-size:8.5pt; margin-bottom:10pt; }
-    th { background:#f8fafc; font-weight:700; padding:5pt 7pt; text-align:left; border:1px solid #e2e8f0; }
-    td { padding:4pt 7pt; border:1px solid #e2e8f0; vertical-align:top; }
+    ul { margin:4pt 0 8pt 16pt; font-size:9pt; }
+    table { width:100%; border-collapse:collapse; font-size:8pt; margin-bottom:10pt; }
+    th { background:#f8fafc; font-weight:700; padding:4pt 6pt; text-align:left; border:1px solid #e2e8f0; }
+    td { padding:3pt 6pt; border:1px solid #e2e8f0; vertical-align:top; }
     tr:nth-child(even) td { background:#f8fafc; }
-    .badge { display:inline-block; font-size:7pt; font-weight:700; padding:1pt 5pt; border-radius:3pt; background:#e2e8f0; }
-    .badge-critical { background:#fee2e2; color:#dc2626; }
-    .badge-success  { background:#dcfce7; color:#16a34a; }
-    .badge-high     { background:#ffedd5; color:#c2410c; }
-    .text-red  { color:#dc2626; }
-    .text-green{ color:#16a34a; }
-    .text-amber{ color:#d97706; }
+    .text-red  { color:#dc2626; } .text-green{ color:#16a34a; }
     .footer { margin-top:18pt; padding-top:7pt; border-top:1px solid #e2e8f0; font-size:8pt; color:#94a3b8; display:flex; justify-content:space-between; }
   </style>
 </head>
@@ -753,29 +921,24 @@ function exportComparison() {
       <div class="sub">Generated: ${genDate}</div>
     </div>
   </div>
-
   <div class="summary-grid">
-    <div class="stat-box"><div class="stat-label">Finish Date Movement</div><div class="stat-val">${finishMov}</div></div>
-    <div class="stat-box"><div class="stat-label">Critical Path Slip</div><div class="stat-val">${cpSlip}</div></div>
-    <div class="stat-box"><div class="stat-label">Score Change</div><div class="stat-val" style="color:#d97706;">${scoreChg}</div></div>
-    <div class="stat-box"><div class="stat-label">Neg. Float Activities</div><div class="stat-val">${negFloat}</div></div>
+    <div class="stat-box"><div class="stat-label">Finish Movement</div><div class="stat-val">${finishDeltaText}</div></div>
+    <div class="stat-box"><div class="stat-label">CP Change</div><div class="stat-val">${cpText}</div></div>
+    <div class="stat-box"><div class="stat-label">Score Change</div><div class="stat-val" style="color:#d97706;">${scoreChange > 0 ? '+' : ''}${scoreChange} pt</div></div>
+    <div class="stat-box"><div class="stat-label">Neg. Float Δ</div><div class="stat-val">${negDelta > 0 ? '+' : ''}${negDelta}</div></div>
   </div>
-
   <h2>Executive Summary</h2>
   <div>${narrative}</div>
-
   <h2>Milestone Changes</h2>
   <table>
     <thead><tr><th>Milestone</th><th>Prior Forecast</th><th>Current Forecast</th><th>Variance</th><th>Status</th></tr></thead>
     <tbody>${milestoneRows}</tbody>
   </table>
-
-  <h2>Activity Changes</h2>
+  <h2>Activity Date Changes</h2>
   <table>
-    <thead><tr><th>ID</th><th>Activity Name</th><th>Start Change</th><th>Finish Change</th><th>Finish Var.</th><th>Float Change</th></tr></thead>
+    <thead><tr><th>Activity ID</th><th>Activity Name</th><th>Start (Prior → Current)</th><th>Finish (Prior → Current)</th><th>Finish Var.</th><th>Float Δ</th></tr></thead>
     <tbody>${activityRows}</tbody>
   </table>
-
   <div class="footer">
     <span>Construct Check &mdash; constructcheck.com</span>
     <span>Generated ${genDate}</span>
@@ -787,7 +950,7 @@ function exportComparison() {
 }
 
 function exportNarrative() {
-  const text = document.querySelector('.narrative-body')?.innerText || '';
+  const text = document.getElementById('compNarrativeBody')?.innerText || '';
   const blob = new Blob([text], { type: 'text/plain' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
