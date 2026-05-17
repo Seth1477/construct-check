@@ -631,12 +631,36 @@ const App = {
       locEl.style.display = 'none';
     }
 
-    this.setEl('#overallScore', overallScore);
+    this.setEl('#overallScore', overallScore ?? '');
     const scoreEl = document.querySelector('#overallScoreRing');
     if (scoreEl) {
-      scoreEl.style.setProperty('--score', overallScore);
-      scoreEl.className = `score-ring score-ring-${this.getRAGClass(overallScore)}`;
-      scoreEl.setAttribute('data-value', overallScore);
+      if (overallScore != null) {
+        scoreEl.style.setProperty('--score', overallScore);
+        scoreEl.className = `score-ring score-ring-${this.getRAGClass(overallScore)}`;
+        scoreEl.setAttribute('data-value', overallScore);
+      } else {
+        scoreEl.className = 'score-ring score-ring-grey';
+        scoreEl.removeAttribute('data-value');
+      }
+    }
+    const ragBadgeEl = document.getElementById('ragBadge');
+    if (ragBadgeEl) {
+      if (overallScore != null) {
+        const ragClass = this.getRAGClass(overallScore);
+        const ragLabel = ragClass === 'green' ? 'Good' : ragClass === 'amber' ? 'Moderate' : 'At Risk';
+        ragBadgeEl.className = `score-rag-badge badge-${ragClass}`;
+        ragBadgeEl.textContent = ragLabel;
+        ragBadgeEl.style.display = '';
+      } else {
+        ragBadgeEl.style.display = 'none';
+      }
+    }
+    const updateDateEl = document.getElementById('scoreUpdateDate');
+    if (updateDateEl) {
+      const updateDate = hasRealData && version?.uploadedAt
+        ? `Updated ${this.formatDate(version.uploadedAt)}`
+        : (hasRealData ? '' : '');
+      updateDateEl.textContent = updateDate;
     }
 
     Object.entries(scores).forEach(([key, cat]) => {
