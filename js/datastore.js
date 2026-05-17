@@ -155,42 +155,53 @@ const DataStore = {
 
   // ─── Schedule Versions ────────────────────────────────────────
 
+  // Strip fields that are large and only needed locally (comparison/diagnostics).
+  // activityLookup (all activities × 12 fields) and wbsLookup can be MB per version;
+  // 20 versions would easily exceed Supabase's API payload limit and localStorage quota.
+  _leanVersion(v) {
+    const { activityLookup, wbsLookup, ...lean } = v;
+    return lean;
+  },
+
   async saveVersions(email, versions) {
-    // 1. IndexedDB — most reliable for large payloads; MUST be awaited before redirect
+    // 1. IndexedDB — full data, no size limit, MUST be awaited before page redirects
     const idbOk = await this._idbPut(this._userKey(email, 'versions'), versions).catch(() => false);
-    if (idbOk) console.log(`[DataStore] Saved ${versions.length} versions to IDB`);
+    if (idbOk) console.log(`[DataStore] Saved ${versions.length} versions (full) to IDB`);
 
-    // 2. localStorage backup (may fail if quota exceeded — silent is fine)
-    try { localStorage.setItem(`cc_versions_${email}`, JSON.stringify(versions)); } catch (e) {}
+    // 2. Lean versions for size-limited stores (drops activityLookup/wbsLookup)
+    const lean = versions.map(v => this._leanVersion(v));
 
-    // 3. Supabase — cross-device sync (best-effort; IDB is the reliable local store)
-    const sbOk = await this._sbUpsert({ versions }).catch(() => false);
-    if (sbOk) console.log(`[DataStore] Saved ${versions.length} versions to Supabase`);
+    // 3. localStorage — lean only, stays well under 5 MB quota
+    try { localStorage.setItem(`cc_versions_${email}`, JSON.stringify(lean)); } catch (e) {}
+
+    // 4. Supabase — lean only, stays under API payload limits for cross-device sync
+    const sbOk = await this._sbUpsert({ versions: lean }).catch(() => false);
+    if (sbOk) console.log(`[DataStore] Saved ${versions.length} versions (lean) to Supabase`);
 
     if (!idbOk && !sbOk) console.warn('[DataStore] All version saves failed — data may be lost on reload');
     return true;
   },
 
   async loadVersions(email) {
-    // 1. Supabase — authoritative, cross-device
+    // 1. IndexedDB — full data preferred (has activityLookup for comparison/diagnostics)
+    const idbData = await this._idbGet(this._userKey(email, 'versions')).catch(() => null);
+    if (idbData && idbData.length > 0) {
+      console.log(`[DataStore] Loaded ${idbData.length} versions (full) from IDB`);
+      return idbData;
+    }
+    // 2. Supabase — lean data (no activityLookup, but dashboard still works)
     const sbData = await this._sbSelect('versions').catch(() => null);
     if (sbData && sbData.length > 0) {
-      console.log(`[DataStore] Loaded ${sbData.length} versions from Supabase`);
-      // Refresh IDB cache (fire-and-forget here is OK — we already have the data)
+      console.log(`[DataStore] Loaded ${sbData.length} versions (lean) from Supabase — re-upload to restore full data`);
+      // Seed IDB with lean data so future loads are fast
       this._idbPut(this._userKey(email, 'versions'), sbData).catch(() => {});
       return sbData;
     }
-    // 2. IndexedDB — reliable local store
-    const idbData = await this._idbGet(this._userKey(email, 'versions')).catch(() => null);
-    if (idbData && idbData.length > 0) {
-      console.log(`[DataStore] Loaded ${idbData.length} versions from IDB`);
-      return idbData;
-    }
-    // 3. localStorage — last resort
+    // 3. localStorage — lean fallback
     try {
       const ls = localStorage.getItem(`cc_versions_${email}`);
       const parsed = ls ? JSON.parse(ls) : null;
-      if (parsed && parsed.length > 0) console.log(`[DataStore] Loaded ${parsed.length} versions from localStorage`);
+      if (parsed && parsed.length > 0) console.log(`[DataStore] Loaded ${parsed.length} versions (lean) from localStorage`);
       return parsed;
     } catch (e) { return null; }
   },
