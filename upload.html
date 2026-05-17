@@ -117,20 +117,16 @@
               <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
           </div>
-          <p class="upload-zone-title">Drop your .XER file here</p>
-          <p class="upload-zone-subtitle">or click to browse — Primavera P6 .xer format only</p>
-          <div class="upload-zone-badge">Max file size: 50 MB</div>
-          <input type="file" id="xerFileInput" accept=".xer" style="display:none;" />
+          <p class="upload-zone-title">Drop your .XER files here</p>
+          <p class="upload-zone-subtitle">or click to browse — Primavera P6 .xer format only · select multiple files for bulk import</p>
+          <div class="upload-zone-badge">Max file size: 50 MB per file</div>
+          <input type="file" id="xerFileInput" accept=".xer" multiple style="display:none;" />
         </div>
 
         <!-- File Preview -->
-        <div id="filePreview" class="file-preview" style="display:none;">
-          <div class="file-preview-icon">📋</div>
-          <div class="file-preview-info">
-            <div class="file-preview-name" id="previewFileName">schedule.xer</div>
-            <div class="file-preview-size" id="previewFileSize">0 KB</div>
-          </div>
-          <button class="btn btn-secondary btn-sm" onclick="clearFile()">✕ Remove</button>
+        <div id="filePreview" style="display:none;">
+          <div id="filePreviewList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px;"></div>
+          <button class="btn btn-secondary btn-sm" onclick="clearFiles()" style="align-self:flex-start;">✕ Remove All</button>
         </div>
 
         <!-- Upload Progress -->
@@ -226,7 +222,7 @@
 <script src="js/datastore.js"></script>
 <script src="js/app.js"></script>
 <script>
-let selectedFile = null;
+let selectedFiles = [];
 
 function toggleProjectMode() {
   const mode = document.querySelector('input[name="projectMode"]:checked').value;
@@ -297,7 +293,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // File selection
 const xerInput = document.getElementById('xerFileInput');
 xerInput.addEventListener('change', e => {
-  if (e.target.files.length > 0) selectFile(e.target.files[0]);
+  if (e.target.files.length > 0) selectFiles(Array.from(e.target.files));
 });
 
 const uploadZone = document.getElementById('uploadZone');
@@ -306,27 +302,49 @@ uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag
 uploadZone.addEventListener('drop', e => {
   e.preventDefault();
   uploadZone.classList.remove('dragover');
-  if (e.dataTransfer.files.length > 0) selectFile(e.dataTransfer.files[0]);
+  if (e.dataTransfer.files.length > 0) selectFiles(Array.from(e.dataTransfer.files));
 });
 
-function selectFile(file) {
-  if (!file.name.toLowerCase().endsWith('.xer')) {
-    App.showAlert('Invalid file type. Please select a Primavera P6 .xer file.', 'error');
-    return;
+function selectFiles(files) {
+  const valid = files.filter(f => f.name.toLowerCase().endsWith('.xer'));
+  const invalid = files.filter(f => !f.name.toLowerCase().endsWith('.xer'));
+  if (invalid.length > 0) {
+    App.showAlert(`${invalid.length} file(s) skipped — only .xer files are supported.`, 'error');
   }
-  selectedFile = file;
-  document.getElementById('previewFileName').textContent = file.name;
-  document.getElementById('previewFileSize').textContent = (file.size / 1024).toFixed(1) + ' KB';
+  if (valid.length === 0) return;
+
+  selectedFiles = valid;
+  const listEl = document.getElementById('filePreviewList');
+  listEl.innerHTML = '';
+  valid.forEach(file => {
+    const row = document.createElement('div');
+    row.className = 'file-preview';
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;';
+    row.innerHTML = `
+      <div class="file-preview-icon">📋</div>
+      <div class="file-preview-info">
+        <div class="file-preview-name">${file.name}</div>
+        <div class="file-preview-size">${(file.size / 1024).toFixed(1)} KB</div>
+      </div>`;
+    listEl.appendChild(row);
+  });
+
   document.getElementById('filePreview').style.display = 'flex';
+  document.getElementById('filePreview').style.flexDirection = 'column';
   document.getElementById('uploadZone').style.display = 'none';
   document.getElementById('uploadBtn').disabled = false;
+
+  if (valid.length > 1) {
+    document.getElementById('uploadBtn').querySelector('svg').nextSibling.textContent = ` Analyze ${valid.length} Schedules`;
+  }
 }
 
-function clearFile() {
-  selectedFile = null;
+function clearFiles() {
+  selectedFiles = [];
   document.getElementById('filePreview').style.display = 'none';
   document.getElementById('uploadZone').style.display = 'flex';
   document.getElementById('uploadBtn').disabled = true;
+  document.getElementById('uploadBtn').innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Analyze Schedule`;
   document.getElementById('xerFileInput').value = '';
 }
 
@@ -349,7 +367,10 @@ function resetOnError() {
 }
 
 async function startUpload() {
-  if (!selectedFile) { App.showAlert('Please select a .xer file.', 'error'); return; }
+  if (!selectedFiles || selectedFiles.length === 0) {
+    App.showAlert('Please select at least one .xer file.', 'error');
+    return;
+  }
 
   const projectMode = document.querySelector('input[name="projectMode"]:checked').value;
   const projectSelectVal = projectMode === 'existing'
@@ -365,169 +386,179 @@ async function startUpload() {
   document.getElementById('uploadBtn').disabled = true;
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const totalFiles = selectedFiles.length;
 
+  const readFileAsText = file => new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = e => res(e.target.result);
+    r.onerror = rej;
+    r.readAsText(file);
+  });
+
+  // Step 1: Validate
   setStep('step-validate', 'active');
-  document.getElementById('uploadStatus').textContent = 'Validating file format...';
-  await sleep(600);
+  document.getElementById('uploadStatus').textContent = `Validating ${totalFiles} file${totalFiles > 1 ? 's' : ''}...`;
+  await sleep(400);
   setStep('step-validate', 'done');
 
+  // Step 2: Parse all files
   setStep('step-parse', 'active');
-  document.getElementById('uploadStatus').textContent = 'Parsing XER schedule data...';
+  const parsedFiles = [];
 
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    await sleep(800);
-    setStep('step-parse', 'done');
-    setStep('step-analyze', 'active');
-    document.getElementById('uploadStatus').textContent = 'Running DCMA+ validation analysis...';
-
+  for (let i = 0; i < totalFiles; i++) {
+    const file = selectedFiles[i];
+    document.getElementById('uploadStatus').textContent =
+      totalFiles > 1 ? `Parsing file ${i + 1} of ${totalFiles}: ${file.name}` : 'Parsing XER schedule data...';
     try {
-      const content = e.target.result;
+      const content = await readFileAsText(file);
       const parser = new XERParser();
       const parsed = parser.parse(content);
-
-      await sleep(1000);
-
       if (!parsed || parser.errors.length > 0) {
-        const errMsg = parser.errors[0] || 'Could not parse XER file. Ensure it is a valid Primavera P6 XER export.';
-        App.showAlert('XER parsing failed: ' + errMsg, 'error');
+        App.showAlert(`XER parsing failed for ${file.name}: ${parser.errors[0] || 'Invalid XER file.'}`, 'error');
         resetOnError();
         return;
       }
-
-      const engine = new ScoringEngine();
-      const scores = engine.analyze(parsed);
-      const cpAnalyzer = new CriticalPathAnalyzer();
-      const cpResult = cpAnalyzer.analyze(parsed.activities, parsed.relationships);
-
-      // Determine target project: auto-create or use selected existing
-      let projectId;
-      if (projectSelectVal === '__auto__' || !projectSelectVal) {
-        const newProj = App.createProjectFromXER(parsed, selectedFile.name);
-        // Apply custom project name if the user typed one
-        const customName = document.getElementById('projectNameInput').value.trim();
-        if (customName) {
-          newProj.name = customName;
-          const inArr = App.projects.find(p => p.id === newProj.id);
-          if (inArr) inArr.name = customName;
-        }
-        projectId = newProj.id;
-        console.log('[Upload] Created project:', newProj.name, '→', projectId);
-      } else {
-        projectId = projectSelectVal;
-      }
-
-      // Count existing real versions for this project
-      const existingVersions = (App.scheduleVersions || []).filter(v => v.projectId === projectId && !v.isDemo);
-      const versionLabel = document.getElementById('versionLabel').value ||
-        `Update ${existingVersions.length + 1}`;
-
-      // Build compact activity lookup (id → display fields) for diagnostic drill-down
-      // We only store the fields the Diagnostics page needs — not the full parsed object.
-      const activityLookup = parsed.activities.map(a => ({
-        id:           a.id,           // task_id (lookup key matching affectedIds)
-        code:         a.code,         // P6 activity code (display ID)
-        name:         a.name,
-        wbsId:        a.wbsId,
-        plannedStart: a.plannedStart,
-        plannedFinish:a.plannedFinish,
-        earlyStart:   a.earlyStart,
-        earlyFinish:  a.earlyFinish,
-        actualStart:  a.actualStart,
-        actualFinish: a.actualFinish,
-        totalFloat:   a.totalFloat,
-        isCritical:   a.isCritical
-      }));
-
-      // Compact WBS lookup for resolving wbsId → human-readable label
-      const wbsLookup = (parsed.wbs || []).map(w => ({
-        id:   w.id,
-        code: w.code,
-        name: w.name
-      }));
-
-      // Build trimmed critical path for storage
-      const trimmedCP = {
-        longestPath: (cpResult.longestPath || []).slice(0, 40).map(a => ({
-          id: a.id, code: a.code, name: a.name || a.code || 'Activity',
-          duration: a.duration, earlyStart: a.earlyStart, earlyFinish: a.earlyFinish,
-          totalFloat: a.totalFloat, type: a.type, isCritical: a.isCritical || a.computedCritical
-        })),
-        criticalCount: (cpResult.criticalPath || []).length,
-        projectDuration: cpResult.projectDuration
-      };
-
-      // Build trimmed milestones list
-      const trimmedMilestones = (parsed.milestones || []).slice(0, 40).map(m => ({
-        id: m.id, code: m.code, name: m.name || m.code || 'Milestone',
-        type: m.type, status: m.status,
-        plannedStart: m.plannedStart, plannedFinish: m.plannedFinish,
-        earlyStart: m.earlyStart, earlyFinish: m.earlyFinish,
-        actualStart: m.actualStart, actualFinish: m.actualFinish,
-        totalFloat: m.totalFloat
-      }));
-
-      // Keep scoring rules as-is (affectedIds already limited to 50 per rule in scoring.js)
-      const trimmedScores = scores || null;
-
-      const version = {
-        id: 'v' + Date.now(),
-        projectId,
-        filename: selectedFile.name,
-        xerProjectName: parsed.project.fullName || parsed.project.name || '',
-        dataDate: parsed.project.dataDate,
-        plannedStart: parsed.project.plannedStart,
-        plannedFinish: parsed.project.plannedFinish,
-        uploadDate: new Date().toISOString().split('T')[0],
-        version: versionLabel,
-        overallScore: scores?.overallScore || 0,
-        categoryScores: scores?.categoryScores || {},
-        activityCount: parsed.activities.length,
-        relationshipCount: parsed.relationships.length,
-        milestoneCount: (parsed.milestones || []).length,
-        status: 'current',
-        analysisResults: trimmedScores,
-        criticalPath: trimmedCP,
-        milestones: trimmedMilestones,
-        activityLookup,
-        wbsLookup,
-        isReal: true
-      };
-
-      if (!App.scheduleVersions) App.scheduleVersions = [];
-      // Mark previous versions for this project as 'published'
-      App.scheduleVersions.forEach(v => {
-        if (v.projectId === projectId && v.status === 'current') v.status = 'published';
-      });
-      App.scheduleVersions.push(version);
-
-      // Update project score
-      const proj = App.projects?.find(p => p.id === projectId);
-      if (proj) {
-        proj.latestScore = version.overallScore;
-        proj.latestScoreRag = scores?.rag || 'amber';
-        proj.uploads = (proj.uploads || 0) + 1;
-        proj.updatedAt = new Date().toISOString().split('T')[0];
-      }
-
-      // Wait for Supabase to confirm the save before redirecting.
-      // This prevents the next page from loading stale data from Supabase.
-      document.getElementById('uploadStatus').textContent = 'Saving to cloud...';
-      await App.saveToStorageAsync();
-
-      setStep('step-analyze', 'done');
-      setStep('step-complete', 'done');
-      document.getElementById('uploadStatus').textContent = `Analysis complete! Score: ${version.overallScore}/100`;
-
-      await sleep(800);
-      window.location.href = `project.html?projectId=${projectId}&uploadId=${version.id}`;
-
+      parsedFiles.push({ file, parsed });
     } catch(err) {
-      App.showAlert('Error processing schedule: ' + err.message, 'error');
+      App.showAlert(`Error reading ${file.name}: ${err.message}`, 'error');
       resetOnError();
+      return;
     }
-  };
-  reader.readAsText(selectedFile);
+    await sleep(200);
+  }
+
+  // Sort all files by data date ascending so versions are in chronological order
+  parsedFiles.sort((a, b) => {
+    const da = a.parsed.project.dataDate ? new Date(a.parsed.project.dataDate + 'T00:00:00') : new Date(0);
+    const db = b.parsed.project.dataDate ? new Date(b.parsed.project.dataDate + 'T00:00:00') : new Date(0);
+    return da - db;
+  });
+
+  setStep('step-parse', 'done');
+
+  // Step 3: Analyze all files
+  setStep('step-analyze', 'active');
+
+  // Determine target project from first (earliest) parsed file
+  let projectId;
+  if (projectSelectVal === '__auto__' || !projectSelectVal) {
+    const newProj = App.createProjectFromXER(parsedFiles[0].parsed, parsedFiles[0].file.name);
+    const customName = document.getElementById('projectNameInput').value.trim();
+    if (customName) {
+      newProj.name = customName;
+      const inArr = App.projects.find(p => p.id === newProj.id);
+      if (inArr) inArr.name = customName;
+    }
+    projectId = newProj.id;
+  } else {
+    projectId = projectSelectVal;
+  }
+
+  const newVersions = [];
+
+  for (let i = 0; i < parsedFiles.length; i++) {
+    const { file, parsed } = parsedFiles[i];
+    document.getElementById('uploadStatus').textContent =
+      totalFiles > 1 ? `Analyzing file ${i + 1} of ${totalFiles}: ${file.name}` : 'Running DCMA+ validation analysis...';
+
+    const engine = new ScoringEngine();
+    const scores = engine.analyze(parsed);
+    const cpAnalyzer = new CriticalPathAnalyzer();
+    const cpResult = cpAnalyzer.analyze(parsed.activities, parsed.relationships);
+
+    const existingCount = (App.scheduleVersions || []).filter(v => v.projectId === projectId && !v.isDemo).length;
+    const versionNumber = existingCount + newVersions.length + 1;
+    const versionLabel = (totalFiles === 1 && document.getElementById('versionLabel').value)
+      ? document.getElementById('versionLabel').value
+      : `Update ${versionNumber}`;
+
+    const activityLookup = parsed.activities.map(a => ({
+      id: a.id, code: a.code, name: a.name, wbsId: a.wbsId,
+      plannedStart: a.plannedStart, plannedFinish: a.plannedFinish,
+      earlyStart: a.earlyStart, earlyFinish: a.earlyFinish,
+      actualStart: a.actualStart, actualFinish: a.actualFinish,
+      totalFloat: a.totalFloat, isCritical: a.isCritical
+    }));
+
+    const wbsLookup = (parsed.wbs || []).map(w => ({ id: w.id, code: w.code, name: w.name }));
+
+    const trimmedCP = {
+      longestPath: (cpResult.longestPath || []).slice(0, 40).map(a => ({
+        id: a.id, code: a.code, name: a.name || a.code || 'Activity',
+        duration: a.duration, earlyStart: a.earlyStart, earlyFinish: a.earlyFinish,
+        totalFloat: a.totalFloat, type: a.type, isCritical: a.isCritical || a.computedCritical
+      })),
+      criticalCount: (cpResult.criticalPath || []).length,
+      projectDuration: cpResult.projectDuration
+    };
+
+    const trimmedMilestones = (parsed.milestones || []).slice(0, 40).map(m => ({
+      id: m.id, code: m.code, name: m.name || m.code || 'Milestone',
+      type: m.type, status: m.status,
+      plannedStart: m.plannedStart, plannedFinish: m.plannedFinish,
+      earlyStart: m.earlyStart, earlyFinish: m.earlyFinish,
+      actualStart: m.actualStart, actualFinish: m.actualFinish,
+      totalFloat: m.totalFloat
+    }));
+
+    newVersions.push({
+      id: 'v' + (Date.now() + i),
+      projectId,
+      filename: file.name,
+      xerProjectName: parsed.project.fullName || parsed.project.name || '',
+      dataDate: parsed.project.dataDate,
+      plannedStart: parsed.project.plannedStart,
+      plannedFinish: parsed.project.plannedFinish,
+      uploadDate: new Date().toISOString().split('T')[0],
+      version: versionLabel,
+      overallScore: scores?.overallScore || 0,
+      categoryScores: scores?.categoryScores || {},
+      activityCount: parsed.activities.length,
+      relationshipCount: parsed.relationships.length,
+      milestoneCount: (parsed.milestones || []).length,
+      status: 'published',
+      analysisResults: scores || null,
+      criticalPath: trimmedCP,
+      milestones: trimmedMilestones,
+      activityLookup,
+      wbsLookup,
+      isReal: true
+    });
+
+    await sleep(150);
+  }
+
+  // Mark last (most recent data date) as current
+  if (newVersions.length > 0) newVersions[newVersions.length - 1].status = 'current';
+
+  if (!App.scheduleVersions) App.scheduleVersions = [];
+  App.scheduleVersions.forEach(v => {
+    if (v.projectId === projectId && v.status === 'current') v.status = 'published';
+  });
+  newVersions.forEach(v => App.scheduleVersions.push(v));
+
+  // Update project metadata from most recent version
+  const lastVersion = newVersions[newVersions.length - 1];
+  const proj = App.projects?.find(p => p.id === projectId);
+  if (proj) {
+    proj.latestScore = lastVersion.overallScore;
+    const s = lastVersion.overallScore;
+    proj.latestScoreRag = s >= 85 ? 'green' : s >= 70 ? 'amber' : 'red';
+    proj.uploads = (proj.uploads || 0) + newVersions.length;
+    proj.updatedAt = new Date().toISOString().split('T')[0];
+  }
+
+  document.getElementById('uploadStatus').textContent = 'Saving to cloud...';
+  await App.saveToStorageAsync();
+
+  setStep('step-analyze', 'done');
+  setStep('step-complete', 'done');
+  document.getElementById('uploadStatus').textContent = totalFiles > 1
+    ? `${totalFiles} schedules uploaded! Latest score: ${lastVersion.overallScore}/100`
+    : `Analysis complete! Score: ${lastVersion.overallScore}/100`;
+
+  await sleep(800);
+  window.location.href = `project.html?projectId=${projectId}&uploadId=${lastVersion.id}`;
 }
 </script>
 <script>

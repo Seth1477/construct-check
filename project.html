@@ -782,9 +782,19 @@ function renderTrendChart() {
 
   const isDemoProject = ['proj-001', 'proj-002', 'proj-003'].includes(project.id);
 
-  // Gather real uploaded version scores for this project
-  const realVersions = (App.scheduleVersions || []).filter(v => v.projectId === project.id && v.isReal);
-  const realPoints = realVersions.map(v => ({ version: v.version, overallScore: v.overallScore }));
+  // Gather real uploaded version scores for this project, sorted by data date
+  const realVersions = (App.scheduleVersions || [])
+    .filter(v => v.projectId === project.id && v.isReal)
+    .sort((a, b) => {
+      const da = a.dataDate ? new Date(a.dataDate + 'T00:00:00') : new Date(0);
+      const db = b.dataDate ? new Date(b.dataDate + 'T00:00:00') : new Date(0);
+      return da - db;
+    });
+  const realPoints = realVersions.map(v => ({
+    version: v.version,
+    overallScore: v.overallScore,
+    dataDate: v.dataDate
+  }));
 
   let chartData;
   if (isDemoProject) {
@@ -821,7 +831,13 @@ function renderTrendChart() {
     return;
   }
 
-  const labels = chartData.map(h => h.version);
+  const labels = chartData.map(h => {
+    if (h.dataDate) {
+      const d = new Date(h.dataDate + 'T00:00:00');
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    return h.version;
+  });
   const data = chartData.map(h => h.overallScore);
   const colors = data.map(s => s >= 85 ? '#22c55e' : s >= 70 ? '#f59e0b' : '#ef4444');
   const minScore = Math.max(0, Math.min(...data) - 10);
@@ -846,10 +862,24 @@ function renderTrendChart() {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `Score: ${ctx.parsed.y}` } } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: ctx => {
+              const h = chartData[ctx[0].dataIndex];
+              return h.dataDate ? labels[ctx[0].dataIndex] : h.version;
+            },
+            label: ctx => `Score: ${ctx.parsed.y}`
+          }
+        }
+      },
       scales: {
         y: { min: minScore, max: 100, grid: { color: '#f1f5f9' }, ticks: { color: '#64748b' } },
-        x: { grid: { display: false }, ticks: { color: '#64748b' } }
+        x: {
+          grid: { display: false },
+          ticks: { color: '#64748b', maxRotation: 40, minRotation: 0, autoSkip: true, maxTicksLimit: 8 }
+        }
       }
     }
   });
