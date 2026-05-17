@@ -81,22 +81,26 @@ const App = {
         }
       }
 
-      // Refresh projects from Supabase for cross-device sync
-      const sbProjects = await DataStore.loadProjects(email);
+      // Refresh projects from Supabase for cross-device sync.
+      // MERGE rather than replace: any project that exists locally but not in Supabase
+      // (e.g. created while offline, or not yet synced) is preserved.
+      const sbProjects = await DataStore.loadProjects(email).catch(() => null);
       if (sbProjects && sbProjects.length > 0) {
-        this.projects = sbProjects;
-        try { localStorage.setItem(this._storageKey('projects'), JSON.stringify(sbProjects)); } catch(e) {}
-        console.log('[App] Loaded', sbProjects.length, 'projects from Supabase');
+        const sbIds = new Set(sbProjects.map(p => p.id));
+        const localOnly = (this.projects || []).filter(p => !sbIds.has(p.id) && p.id && !p.isDemo);
+        const merged = [...sbProjects, ...localOnly];
+        this.projects = merged;
+        try { localStorage.setItem(this._storageKey('projects'), JSON.stringify(merged)); } catch(e) {}
+        console.log('[App] Loaded', sbProjects.length, 'projects from Supabase' + (localOnly.length ? ` + ${localOnly.length} local-only` : ''));
       } else if (this.projects.length === 0) {
-        // Truly first load — seed demo data for admin, empty for everyone else
+        // Truly first load with no data anywhere — show demo projects in-memory only.
+        // Do NOT write demo data to Supabase; it would overwrite real data on the next sync.
         const emailLower = email.toLowerCase();
         if (emailLower === this.ADMIN_EMAIL) {
           this.projects = typeof DEMO_PROJECTS !== 'undefined' ? DEMO_PROJECTS : [];
           if (typeof DEMO_SCHEDULE_VERSIONS !== 'undefined' && this.scheduleVersions.length === 0) {
             this.scheduleVersions = DEMO_SCHEDULE_VERSIONS;
           }
-          if (this.projects.length > 0) await DataStore.saveProjects(email, this.projects);
-          if (this.scheduleVersions.length > 0) await DataStore.saveVersions(email, this.scheduleVersions);
         }
       }
     } catch(e) {
@@ -509,13 +513,32 @@ const App = {
 
   // ─── Project Resolution ──────────────────────────────────────
   _resolveCurrentProject() {
-    const projectId = this.getQueryParam('projectId')
+    const urlProjectId = this.getQueryParam('projectId');
+    const projectId = urlProjectId
       || this._loadCurrentProjectId()
       || this.projects[0]?.id;
-    const project = (projectId ? this.projects.find(p => p.id === projectId) : null)
-      || this.projects[0]
-      || null;
-    // Persist so other pages pick it up without a URL param
+
+    let project = projectId ? this.projects.find(p => p.id === projectId) : null;
+
+    // If a specific projectId was in the URL but isn't in this.projects, try to
+    // recover it from localStorage before falling back to a random project.
+    // This handles the case where Supabase returned stale data (e.g. demo projects)
+    // that didn't include the real project.
+    if (urlProjectId && !project) {
+      try {
+        const lsKey = this._storageKey('projects');
+        const lsProjects = JSON.parse(localStorage.getItem(lsKey) || '[]');
+        const lsProject = lsProjects.find(p => p.id === urlProjectId);
+        if (lsProject) {
+          // Re-add to this.projects so it persists for this session
+          this.projects.push(lsProject);
+          project = lsProject;
+          console.warn('[App] Recovered project', urlProjectId, 'from localStorage after Supabase sync miss');
+        }
+      } catch(e) {}
+    }
+
+    if (!project) project = this.projects[0] || null;
     if (project) this._saveCurrentProjectId(project.id);
     return project;
   },
