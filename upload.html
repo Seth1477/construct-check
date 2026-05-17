@@ -98,6 +98,11 @@
           </div>
         </div>
 
+        <div class="form-group" id="newProjectNameRow">
+          <label class="form-label">Project Name (optional)</label>
+          <input type="text" class="form-input" id="projectNameInput" placeholder="Leave blank to use the name from the XER file" />
+        </div>
+
         <div class="form-group">
           <label class="form-label">Version Label (optional)</label>
           <input type="text" class="form-input" id="versionLabel" placeholder="e.g. Update 8, Baseline Rev 2" />
@@ -226,11 +231,13 @@ let selectedFile = null;
 function toggleProjectMode() {
   const mode = document.querySelector('input[name="projectMode"]:checked').value;
   const existingRow = document.getElementById('existingProjectRow');
+  const nameRow     = document.getElementById('newProjectNameRow');
   const newLabel = document.querySelector('label:has(input[value="new"])');
   const existingLabel = document.getElementById('existingLabel');
 
   if (mode === 'existing') {
     existingRow.style.display = 'block';
+    nameRow.style.display = 'none';
     existingLabel.style.borderColor = '#a78bfa';
     existingLabel.style.background = '#f5f3ff';
     existingLabel.style.fontWeight = '600';
@@ -241,6 +248,7 @@ function toggleProjectMode() {
     newLabel.style.color = '#94a3b8';
   } else {
     existingRow.style.display = 'none';
+    nameRow.style.display = 'block';
     newLabel.style.borderColor = '#a78bfa';
     newLabel.style.background = '#f5f3ff';
     newLabel.style.fontWeight = '600';
@@ -395,10 +403,16 @@ async function startUpload() {
       // Determine target project: auto-create or use selected existing
       let projectId;
       if (projectSelectVal === '__auto__' || !projectSelectVal) {
-        // Auto-create a new project from the XER data
         const newProj = App.createProjectFromXER(parsed, selectedFile.name);
+        // Apply custom project name if the user typed one
+        const customName = document.getElementById('projectNameInput').value.trim();
+        if (customName) {
+          newProj.name = customName;
+          const inArr = App.projects.find(p => p.id === newProj.id);
+          if (inArr) inArr.name = customName;
+        }
         projectId = newProj.id;
-        console.log('[Upload] Auto-created project:', newProj.name, '→', projectId);
+        console.log('[Upload] Created project:', newProj.name, '→', projectId);
       } else {
         projectId = projectSelectVal;
       }
@@ -496,13 +510,16 @@ async function startUpload() {
         proj.updatedAt = new Date().toISOString().split('T')[0];
       }
 
-      App.saveToStorage();
+      // Wait for Supabase to confirm the save before redirecting.
+      // This prevents the next page from loading stale data from Supabase.
+      document.getElementById('uploadStatus').textContent = 'Saving to cloud...';
+      await App.saveToStorageAsync();
 
       setStep('step-analyze', 'done');
       setStep('step-complete', 'done');
       document.getElementById('uploadStatus').textContent = `Analysis complete! Score: ${version.overallScore}/100`;
 
-      await sleep(1200);
+      await sleep(800);
       window.location.href = `project.html?projectId=${projectId}&uploadId=${version.id}`;
 
     } catch(err) {

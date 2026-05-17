@@ -131,10 +131,20 @@ const App = {
     }
   },
 
-  // Combined save — call this after any mutation
+  // Combined save — fire-and-forget version (safe for most mutations)
   saveToStorage() {
     this._saveProjectsSync();
-    this._saveVersionsAsync(); // async, no await needed from callers
+    this._saveVersionsAsync();
+  },
+
+  // Awaitable save — use before redirecting so Supabase is fully updated
+  async saveToStorageAsync() {
+    const email = this._currentEmail();
+    try { localStorage.setItem(this._storageKey('projects'), JSON.stringify(this.projects)); } catch(e) {}
+    await Promise.all([
+      DataStore.saveProjects(email, this.projects),
+      DataStore.saveVersions(email, this.scheduleVersions)
+    ]);
   },
 
   // Legacy alias used by old code paths
