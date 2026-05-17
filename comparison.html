@@ -201,13 +201,29 @@
           <div class="card-header" style="flex-wrap:wrap;gap:8px;">
             <h2 class="card-title">Activity Date Changes <span id="actChangeBadge" class="badge badge-medium" style="margin-left:8px;font-size:11px;"></span></h2>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <input type="text" class="form-input" id="actSearch" placeholder="Search ID or name..." oninput="filterActivityChanges()" style="width:180px;" />
+              <input type="text" class="form-input" id="actSearch" placeholder="Search ID or name..." oninput="_debouncedActFilter()" style="width:180px;" />
               <select class="form-select" id="actTypeFilter" onchange="filterActivityChanges()" style="width:150px;">
                 <option value="">All changes</option>
                 <option value="changed">Date changed</option>
                 <option value="added">Added</option>
                 <option value="removed">Removed</option>
               </select>
+              <button class="btn btn-secondary btn-sm" onclick="_expandAllActWBS()" title="Expand all WBS groups">⊞ Expand All</button>
+              <button class="btn btn-secondary btn-sm" onclick="_collapseAllActWBS()" title="Collapse all WBS groups">⊟ Collapse All</button>
+              <div style="position:relative;display:inline-block;">
+                <button class="btn btn-secondary btn-sm" id="actExportBtn"
+                  onclick="var m=document.getElementById('actExportMenu');m.style.display=m.style.display==='block'?'none':'block'">
+                  ⬇ Export ▾
+                </button>
+                <div id="actExportMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:4px;z-index:200;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.12);min-width:190px;">
+                  <button onclick="exportActivityXlsx('view');document.getElementById('actExportMenu').style.display='none'"
+                    style="display:block;width:100%;text-align:left;padding:7px 12px;background:none;border:none;cursor:pointer;font-size:13px;border-radius:4px;color:#1e1b4b;"
+                    onmouseover="this.style.background='#f1f0fb'" onmouseout="this.style.background='none'">📋 Export Current View</button>
+                  <button onclick="exportActivityXlsx('all');document.getElementById('actExportMenu').style.display='none'"
+                    style="display:block;width:100%;text-align:left;padding:7px 12px;background:none;border:none;cursor:pointer;font-size:13px;border-radius:4px;color:#1e1b4b;"
+                    onmouseover="this.style.background='#f1f0fb'" onmouseout="this.style.background='none'">📊 Export All Changes</button>
+                </div>
+              </div>
             </div>
           </div>
           <table class="data-table mt-4">
@@ -310,6 +326,9 @@ let _v1 = null, _v2 = null;
 let _allActivityChanges = [];
 let _filteredActivityChanges = [];
 let _wbsMap = new Map();
+let _cachedActTree  = null;   // { nodeMap: Map, roots: [] } — built once per comparison run
+let _wbsPathCache   = new Map(); // wbsId → "A > B > C" — computed lazily, cleared on new comparison
+let _actFilterTimer = null;   // debounce handle for search input
 
 document.addEventListener('DOMContentLoaded', async () => {
   await App.whenReady();
@@ -741,6 +760,10 @@ function renderActivityChanges() {
   _wbsMap = new Map();
   ((_v2?.wbsLookup || _v1?.wbsLookup) || []).forEach(w => _wbsMap.set(w.id, w.name || w.code || w.id));
 
+  // Pre-build WBS tree structure once (reused on every subsequent filter without rebuilding)
+  _cachedActTree = _buildActTree();
+  _wbsPathCache  = new Map();
+
   const badge = document.getElementById('actChangeBadge');
   if (badge) {
     const ch = changes.filter(c => c.type==='changed').length;
@@ -750,6 +773,11 @@ function renderActivityChanges() {
   }
 
   filterActivityChanges();
+}
+
+function _debouncedActFilter() {
+  clearTimeout(_actFilterTimer);
+  _actFilterTimer = setTimeout(filterActivityChanges, 280);
 }
 
 function filterActivityChanges() {
@@ -776,15 +804,23 @@ function _renderActivityTree() {
     return;
   }
 
-  // Build WBS tree
-  const wbsSource = _v2?.wbsLookup || _v1?.wbsLookup || [];
-  const wbsTreeMap = new Map();
-  wbsSource.forEach(w => wbsTreeMap.set(w.id, { ...w, children:[], ownItems:[] }));
-  const actRoots = [];
-  wbsTreeMap.forEach(node => {
-    if (node.parentId && wbsTreeMap.has(node.parentId)) wbsTreeMap.get(node.parentId).children.push(node);
-    else actRoots.push(node);
-  });
+  // For large sets show a loading message immediately (lets browser paint before heavy DOM work)
+  if (changes.length > 300) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:20px;">
+      Building table for ${changes.length} changes…</td></tr>`;
+    setTimeout(() => _doRenderActivityTree(tbody, changes, hasFilters), 0);
+  } else {
+    _doRenderActivityTree(tbody, changes, hasFilters);
+  }
+}
+
+function _doRenderActivityTree(tbody, changes, hasFilters) {
+  // Reuse cached tree structure — only reset ownItems (they change per filter)
+  if (!_cachedActTree) _cachedActTree = _buildActTree();
+  _cachedActTree.nodeMap.forEach(n => { n.ownItems = []; });
+
+  const wbsTreeMap = _cachedActTree.nodeMap;
+  const actRoots   = _cachedActTree.roots;
 
   const actUnassigned = [];
   changes.forEach(c => {
@@ -793,11 +829,10 @@ function _renderActivityTree() {
     else actUnassigned.push(c);
   });
 
-  const actHasItems  = n => n.ownItems.length > 0 || n.children.some(actHasItems);
+  const actHasItems   = n => n.ownItems.length > 0 || n.children.some(actHasItems);
   const actCountItems = n => n.ownItems.length + n.children.reduce((s, c) => s + actCountItems(c), 0);
 
   const rows = [];
-  // Auto-expand all groups when a filter is active so results are visible
   const autoExpand = hasFilters;
 
   const fmtDelta = (prev, cur) => {
@@ -832,7 +867,6 @@ function _renderActivityTree() {
     const indent = depth * 20;
     const bg     = depth === 0 ? '#f1f0fb' : depth === 1 ? '#f8f7fd' : '#fafafa';
     const bw     = Math.max(4 - depth, 2);
-    // Default collapsed unless filtering
     const expanded = autoExpand;
     const arrow    = expanded ? '▼' : '▶';
     rows.push(`<tr class="wbs-row" data-wbs-id="${key}" data-parent-wbs="${parentKey}"
@@ -841,6 +875,9 @@ function _renderActivityTree() {
         <span id="arr-${key}" style="display:inline-block;width:14px;font-size:9px;color:#7c6fe0;">${arrow}</span>
         <strong style="font-size:13px;color:#1e1b4b;">${node.name || node.code}</strong>
         <span style="margin-left:8px;font-size:11px;color:#64748b;">${count} change${count !== 1 ? 's' : ''}</span>
+        <button onclick="event.stopPropagation();window._toggleWBS('${key}')"
+          style="float:right;background:none;border:1px solid #c4b5fd;color:#7c6fe0;border-radius:4px;padding:1px 8px;font-size:11px;cursor:pointer;margin-right:4px;"
+          title="Expand/collapse this section">expand</button>
       </td>
     </tr>`);
     const childHidden = !expanded || !!parentHidden;
@@ -865,7 +902,6 @@ function _renderActivityTree() {
       actUnassigned.forEach(c => renderActItem(c, uk, !autoExpand));
     }
   } else {
-    // No WBS — flat list
     changes.forEach(c => renderActItem(c, '', false));
   }
 
@@ -1031,6 +1067,236 @@ function renderNarrative() {
       'Review constraint changes that may be masking critical path issues'
     ].filter(Boolean).map((a, i) => `(${i+1}) ${a}.`).join(' ')}</p>
   `;
+}
+
+// ── Activity Tree Helpers ─────────────────────────────────────
+
+// Build WBS tree structure once per comparison (cached in _cachedActTree)
+function _buildActTree() {
+  const wbsSource = _v2?.wbsLookup || _v1?.wbsLookup || [];
+  const nodeMap = new Map();
+  wbsSource.forEach(w => nodeMap.set(w.id, { ...w, children: [], ownItems: [] }));
+  const roots = [];
+  nodeMap.forEach(node => {
+    if (node.parentId && nodeMap.has(node.parentId)) {
+      nodeMap.get(node.parentId).children.push(node);
+    } else {
+      roots.push(node);
+    }
+  });
+  return { nodeMap, roots };
+}
+
+// Return the full WBS breadcrumb path for an activity (memoised)
+function _getActWbsPath(wbsId) {
+  if (!wbsId) return '';
+  if (_wbsPathCache.has(wbsId)) return _wbsPathCache.get(wbsId);
+  const parts = [];
+  let cur = wbsId;
+  const seen = new Set();
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const node = _cachedActTree?.nodeMap?.get(cur);
+    if (!node) break;
+    parts.unshift(node.name || node.code || cur);
+    cur = node.parentId;
+  }
+  const path = parts.join(' > ');
+  _wbsPathCache.set(wbsId, path);
+  return path;
+}
+
+// Expand every collapsed WBS row in the activity table
+function _expandAllActWBS() {
+  const tbody = document.getElementById('activityChanges');
+  if (!tbody) return;
+  // Expand from roots down so nested children become visible correctly
+  tbody.querySelectorAll('.wbs-row').forEach(row => {
+    const key = row.getAttribute('data-wbs-id');
+    if (!key) return;
+    const arr = document.getElementById('arr-' + key);
+    if (arr && arr.textContent.trim() === '▶') window._toggleWBS(key);
+  });
+}
+
+// Collapse every expanded WBS row in the activity table (top-level first)
+function _collapseAllActWBS() {
+  const tbody = document.getElementById('activityChanges');
+  if (!tbody) return;
+  // Collapse top-level roots first (children get hidden recursively)
+  tbody.querySelectorAll('.wbs-row[data-parent-wbs=""]').forEach(row => {
+    const key = row.getAttribute('data-wbs-id');
+    if (!key) return;
+    const arr = document.getElementById('arr-' + key);
+    if (arr && arr.textContent.trim() === '▼') window._toggleWBS(key);
+  });
+}
+
+// Close the export dropdown when clicking anywhere outside it
+document.addEventListener('click', e => {
+  const menu = document.getElementById('actExportMenu');
+  const btn  = document.getElementById('actExportBtn');
+  if (menu && !menu.contains(e.target) && e.target !== btn && !btn?.contains(e.target)) {
+    menu.style.display = 'none';
+  }
+});
+
+// ── Excel Export (ExcelJS, lazy-loaded) ───────────────────────
+async function exportActivityXlsx(mode) {
+  const changes = mode === 'all' ? _allActivityChanges : _filteredActivityChanges;
+  if (!changes || changes.length === 0) {
+    App.showAlert('No activity changes to export.', 'warning');
+    return;
+  }
+
+  // Lazy-load ExcelJS only when needed (~1 MB, cached after first load)
+  if (!window.ExcelJS) {
+    App.showAlert('Loading export library…', 'info');
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('ExcelJS failed to load'));
+      document.head.appendChild(s);
+    }).catch(() => {
+      App.showAlert('Could not load export library — check your connection.', 'error');
+      throw new Error('ExcelJS load failed');
+    });
+  }
+
+  const projectName   = _compProject?.name || 'Project';
+  const genDate       = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
+  const baselineSel   = document.getElementById('baselineSelect');
+  const currentSel    = document.getElementById('currentSelect');
+  const baselineLabel = baselineSel?.options[baselineSel.selectedIndex]?.text || _v1?.version || 'Baseline';
+  const currentLabel  = currentSel?.options[currentSel.selectedIndex]?.text  || _v2?.version || 'Current';
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Construct Check';
+  wb.created = new Date();
+
+  const ws = wb.addWorksheet('Activity Changes', {
+    views: [{ state: 'frozen', ySplit: 6 }]
+  });
+
+  const PURPLE       = 'FF7C6FE0';
+  const PURPLE_LIGHT = 'FFF1F0FB';
+  const WHITE        = 'FFFFFFFF';
+  const DARK         = 'FF1E1B4B';
+  const GREY         = 'FF64748B';
+
+  const COL_KEYS   = ['wbsPath','code','name','changeType','priorStart','curStart','priorFinish','curFinish','finishVar','floatDelta'];
+  const COL_LABELS = ['WBS Path','Activity ID','Activity Name','Change Type','Start (Prior)','Start (Current)','Finish (Prior)','Finish (Current)','Finish Var. (days)','Float Δ (days)'];
+  const COL_WIDTHS = [44, 16, 52, 14, 18, 18, 18, 18, 20, 14];
+
+  ws.columns = COL_KEYS.map((key, i) => ({ key, width: COL_WIDTHS[i] }));
+
+  // ── Row 1: branded title bar ───────────────────────────────
+  ws.mergeCells('A1:J1');
+  Object.assign(ws.getCell('A1'), {
+    value: 'CONSTRUCT CHECK  —  Schedule Comparison Report',
+    font:  { bold: true, size: 14, color: { argb: WHITE }, name: 'Calibri' },
+    fill:  { type: 'pattern', pattern: 'solid', fgColor: { argb: PURPLE } },
+    alignment: { horizontal: 'center', vertical: 'middle' }
+  });
+  ws.getRow(1).height = 30;
+
+  // ── Row 2: project & version info ─────────────────────────
+  ws.mergeCells('A2:J2');
+  Object.assign(ws.getCell('A2'), {
+    value: `${projectName}   ·   ${baselineLabel}  →  ${currentLabel}   ·   Generated: ${genDate}`,
+    font:  { size: 10, color: { argb: DARK } },
+    fill:  { type: 'pattern', pattern: 'solid', fgColor: { argb: PURPLE_LIGHT } },
+    alignment: { horizontal: 'center', vertical: 'middle' }
+  });
+  ws.getRow(2).height = 20;
+
+  // ── Row 3: summary counts ──────────────────────────────────
+  const nChanged = _allActivityChanges.filter(c => c.type==='changed').length;
+  const nAdded   = _allActivityChanges.filter(c => c.type==='added').length;
+  const nRemoved = _allActivityChanges.filter(c => c.type==='removed').length;
+  ws.mergeCells('A3:J3');
+  Object.assign(ws.getCell('A3'), {
+    value: `Total changes: ${_allActivityChanges.length}   (${nChanged} date changes · ${nAdded} added · ${nRemoved} removed)${mode==='view' ? `   |   Filtered export: ${changes.length} rows` : ''}`,
+    font:  { size: 9, italic: true, color: { argb: GREY } },
+    alignment: { horizontal: 'left', vertical: 'middle', indent: 1 }
+  });
+  ws.getRow(3).height = 16;
+
+  // ── Rows 4–5: blank spacer ────────────────────────────────
+  ws.mergeCells('A4:J4'); ws.getRow(4).height = 4;
+  ws.mergeCells('A5:J5'); ws.getRow(5).height = 4;
+
+  // ── Row 6: column headers (purple) ────────────────────────
+  const headerRow = ws.getRow(6);
+  COL_LABELS.forEach((label, i) => {
+    const cell = headerRow.getCell(i + 1);
+    cell.value = label;
+    cell.font  = { bold: true, size: 10, color: { argb: WHITE } };
+    cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: PURPLE } };
+    cell.alignment = { horizontal: 'left', vertical: 'middle' };
+    cell.border = { right: { style: 'thin', color: { argb: 'FFB8B0F5' } } };
+  });
+  headerRow.height = 22;
+  ws.autoFilter = { from: 'A6', to: 'J6' };
+
+  // ── Data rows ─────────────────────────────────────────────
+  const fmtDate = s => {
+    if (!s) return '';
+    const d = new Date(String(s).replace(' ', 'T'));
+    return isNaN(d) ? String(s) : d.toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' });
+  };
+  const TYPE_LABEL = { changed: 'Date Changed', added: 'Added', removed: 'Removed' };
+  const GREEN_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFD1FAE5' } };
+  const RED_FILL   = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFEE2E2' } };
+  const ALT_FILL   = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF8F7FD' } };
+  const NONE_FILL  = { type:'pattern', pattern:'none'  };
+
+  changes.forEach((c, idx) => {
+    const row = ws.addRow({
+      wbsPath:    _getActWbsPath(c.wbsId),
+      code:       c.code  || '',
+      name:       c.name  || '',
+      changeType: TYPE_LABEL[c.type] || c.type,
+      priorStart:  fmtDate(c.priorStart),
+      curStart:    fmtDate(c.curStart),
+      priorFinish: fmtDate(c.priorFinish),
+      curFinish:   fmtDate(c.curFinish),
+      finishVar:   c.finishVariance ?? '',
+      floatDelta:  c.floatDelta     ?? ''
+    });
+    row.height = 15;
+
+    const fill = c.type === 'added'   ? GREEN_FILL
+               : c.type === 'removed' ? RED_FILL
+               : idx % 2 === 0        ? NONE_FILL : ALT_FILL;
+
+    row.eachCell({ includeEmpty: true }, (cell, col) => {
+      cell.fill      = fill;
+      cell.font      = { size: 9 };
+      cell.alignment = { vertical: 'middle' };
+      // Colour numeric delta columns
+      if (col === 9 && typeof c.finishVariance === 'number' && c.finishVariance !== 0) {
+        cell.font = { size: 9, bold: true,
+          color: { argb: c.finishVariance > 0 ? 'FFDC2626' : 'FF16A34A' } };
+      }
+      if (col === 10 && typeof c.floatDelta === 'number' && c.floatDelta !== 0) {
+        cell.font = { size: 9,
+          color: { argb: c.floatDelta < 0 ? 'FFDC2626' : 'FF16A34A' } };
+      }
+    });
+  });
+
+  // ── Download ──────────────────────────────────────────────
+  const safeName = projectName.replace(/[^a-z0-9]/gi, '_').replace(/__+/g, '_');
+  const filename  = `ConstructCheck_${safeName}_ActivityChanges_${mode==='all'?'All':'Filtered'}.xlsx`;
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob   = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+  App.showAlert(`Exported ${changes.length} activities to ${filename}`, 'success');
 }
 
 // ── Export ───────────────────────────────────────────────────
