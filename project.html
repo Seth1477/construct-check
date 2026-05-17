@@ -565,8 +565,9 @@ function renderVersionHistory() {
     allVersions = [...realVersions];
   }
 
+  const parseDD = s => s ? new Date(String(s).replace(' ', 'T')) : new Date(0);
   // Sort chronologically oldest → newest for delta maths
-  const sorted = [...allVersions].sort((a, b) => (a.dataDate || '').localeCompare(b.dataDate || ''));
+  const sorted = [...allVersions].sort((a, b) => parseDD(a.dataDate) - parseDD(b.dataDate));
 
   // ── Helpers ──────────────────────────────────────────────────
   const ragColor = s => s >= 85 ? '#22c55e' : s >= 70 ? '#f59e0b' : '#ef4444';
@@ -783,14 +784,11 @@ function renderTrendChart() {
 
   const isDemoProject = ['proj-001', 'proj-002', 'proj-003'].includes(project.id);
 
+  const parseD = s => s ? new Date(String(s).replace(' ', 'T')) : new Date(0);
   // Gather real uploaded version scores for this project, sorted by data date
   const realVersions = (App.scheduleVersions || [])
     .filter(v => v.projectId === project.id && v.isReal)
-    .sort((a, b) => {
-      const da = a.dataDate ? new Date(a.dataDate) : new Date(0);
-      const db = b.dataDate ? new Date(b.dataDate) : new Date(0);
-      return da - db;
-    });
+    .sort((a, b) => parseD(a.dataDate) - parseD(b.dataDate));
   const realPoints = realVersions.map(v => ({
     version: v.version,
     overallScore: v.overallScore,

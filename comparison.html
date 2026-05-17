@@ -202,9 +202,6 @@
             <h2 class="card-title">Activity Date Changes <span id="actChangeBadge" class="badge badge-medium" style="margin-left:8px;font-size:11px;"></span></h2>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <input type="text" class="form-input" id="actSearch" placeholder="Search ID or name..." oninput="filterActivityChanges()" style="width:180px;" />
-              <select class="form-select" id="actWbsFilter" onchange="filterActivityChanges()" style="width:200px;">
-                <option value="">All Work Packages</option>
-              </select>
               <select class="form-select" id="actTypeFilter" onchange="filterActivityChanges()" style="width:150px;">
                 <option value="">All changes</option>
                 <option value="changed">Date changed</option>
@@ -218,7 +215,6 @@
               <tr>
                 <th>Activity ID</th>
                 <th>Activity Name</th>
-                <th>Work Package</th>
                 <th>Start (Prior → Current)</th>
                 <th>Finish (Prior → Current)</th>
                 <th>Finish Var.</th>
@@ -227,13 +223,6 @@
             </thead>
             <tbody id="activityChanges"></tbody>
           </table>
-          <div id="actPagination" style="display:flex;align-items:center;justify-content:space-between;padding:12px 0 4px;gap:12px;">
-            <span id="actPageInfo" style="font-size:13px;color:#64748b;"></span>
-            <div style="display:flex;gap:8px;">
-              <button class="btn btn-secondary btn-sm" id="actPrevBtn" onclick="actChangePage(-1)" disabled>← Prev</button>
-              <button class="btn btn-secondary btn-sm" id="actNextBtn" onclick="actChangePage(1)" disabled>Next →</button>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -320,9 +309,7 @@ let _compVersions = [];
 let _v1 = null, _v2 = null;
 let _allActivityChanges = [];
 let _filteredActivityChanges = [];
-let _actPage = 0;
-const ACT_PAGE_SIZE = 50;
-let _wbsMap = new Map(); // code → name for v2
+let _wbsMap = new Map();
 
 document.addEventListener('DOMContentLoaded', async () => {
   await App.whenReady();
@@ -334,10 +321,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     App._injectProjectIdIntoLinks(_compProject);
   }
 
+  const parseCompDate = s => s ? new Date(String(s).replace(' ', 'T')) : new Date(0);
   // Sort versions by data date ascending
   _compVersions = (App.scheduleVersions || [])
     .filter(v => _compProject && v.projectId === _compProject.id && v.isReal)
-    .sort((a, b) => new Date(a.dataDate) - new Date(b.dataDate));
+    .sort((a, b) => parseCompDate(a.dataDate) - parseCompDate(b.dataDate));
 
   const baselineSelect = document.getElementById('baselineSelect');
   const currentSelect  = document.getElementById('currentSelect');
@@ -534,63 +522,156 @@ function renderMilestoneChanges() {
   const hideCompleted = document.getElementById('hideCompletedMilestones')?.checked !== false;
 
   if (m1.length === 0 && m2.length === 0) {
-    if (badge) badge.textContent = 'No milestones stored';
+    if (badge) badge.textContent = 'No milestone data';
     tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">No milestone data stored for these versions.</td></tr>`;
     return;
   }
 
-  const rows = [];
+  const pd = s => s ? new Date(String(s).replace(' ', 'T')) : null;
+
+  // Build changes list — only milestones with actual date shifts, new, or removed
+  const changes = [];
   m2.forEach(cur => {
     const prev = m1.find(p => p.name === cur.name || p.code === cur.code);
     const prevDate = prev ? (prev.earlyFinish || prev.plannedFinish) : null;
     const curDate  = cur.earlyFinish || cur.plannedFinish;
     let variance = null;
     if (prevDate && curDate) {
-      variance = Math.round((new Date(curDate) - new Date(prevDate)) / 86400000);
+      const d1 = pd(prevDate), d2 = pd(curDate);
+      if (d1 && d2) variance = Math.round((d2 - d1) / 86400000);
     }
-    const hasActual = cur.status === 'TK_Complete' || (cur.actualFinish && cur.actualFinish.trim() !== '' && !cur.actualFinish.startsWith('0000'));
-    rows.push({ name: cur.name, prevDate, curDate, variance, hasActual });
+    const hasActual = cur.status === 'TK_Complete' ||
+      (cur.actualFinish && cur.actualFinish.trim() !== '' && !cur.actualFinish.startsWith('0000'));
+    const isNew = !prev;
+    // Skip milestones with zero variance that aren't new
+    if (!isNew && (variance === null || variance === 0)) return;
+    changes.push({ name: cur.name, code: cur.code, wbsId: cur.wbsId || null,
+      prevDate, curDate, variance, hasActual, isNew });
+  });
+  // Removed milestones (in v1 but not v2)
+  m1.forEach(prev => {
+    if (!m2.find(c => c.name === prev.name || c.code === prev.code)) {
+      changes.push({ name: prev.name, code: prev.code, wbsId: prev.wbsId || null,
+        prevDate: prev.earlyFinish || prev.plannedFinish, curDate: null,
+        variance: null, hasActual: false, isNew: false, isRemoved: true });
+    }
   });
 
-  // Sort: slipped first, then no-change upcoming, then recovered, completed last
-  rows.sort((a, b) => {
-    if (a.hasActual !== b.hasActual) return a.hasActual ? 1 : -1;
-    return (b.variance || 0) - (a.variance || 0);
-  });
-
-  const slipped = rows.filter(r => r.variance > 0 && !r.hasActual).length;
-  const total   = rows.length;
+  const slipped = changes.filter(r => !r.isRemoved && !r.isNew && (r.variance || 0) > 0 && !r.hasActual).length;
   if (badge) {
-    badge.textContent = slipped > 0 ? `${slipped} slipped` : 'No slippage';
+    badge.textContent = slipped > 0 ? `${slipped} slipped` : changes.length > 0 ? `${changes.length} changed` : 'No changes';
     badge.className   = slipped > 0 ? 'badge badge-critical' : 'badge badge-low';
   }
 
-  const visible = hideCompleted ? rows.filter(r => !r.hasActual) : rows;
+  const visible = hideCompleted ? changes.filter(r => !r.hasActual) : changes;
 
   if (visible.length === 0) {
     tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">${
-      hideCompleted && total > 0
-        ? `All ${total} milestones are complete. Uncheck "Hide completed" to view them.`
-        : 'No matching milestones found between versions.'
+      changes.length === 0 ? 'No milestone date changes between these versions.'
+      : 'All changed milestones are complete. Uncheck "Hide completed" to view.'
     }</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = visible.map(r => {
-    const dirClass = r.variance > 0 ? 'text-red font-bold' : r.variance < 0 ? 'text-green' : 'text-secondary';
-    const dirLabel = r.hasActual
-      ? '<span class="badge badge-success">Complete</span>'
-      : r.variance > 0 ? '<span class="badge badge-critical">Slipped</span>'
-      : r.variance < 0 ? '<span class="badge badge-low">Recovered</span>'
+  // Build WBS tree and group changed milestones into it
+  const wbsSource = _v2?.wbsLookup || _v1?.wbsLookup || [];
+  const wbsMapMs  = new Map();
+  wbsSource.forEach(w => wbsMapMs.set(w.id, { ...w, children: [], ownItems: [] }));
+  const msRoots = [];
+  wbsMapMs.forEach(node => {
+    if (node.parentId && wbsMapMs.has(node.parentId)) wbsMapMs.get(node.parentId).children.push(node);
+    else msRoots.push(node);
+  });
+
+  const msUnassigned = [];
+  visible.forEach(r => {
+    const node = r.wbsId ? wbsMapMs.get(r.wbsId) : null;
+    if (node) node.ownItems.push(r);
+    else msUnassigned.push(r);
+  });
+
+  const msHasItems  = node => node.ownItems.length > 0 || node.children.some(msHasItems);
+  const msCountItems = node => node.ownItems.length + node.children.reduce((s, c) => s + msCountItems(c), 0);
+
+  const rows = [];
+
+  const renderMsItem = (r, parentKey, depth) => {
+    const pLeft = (depth + 1) * 20 + 8;
+    const v = r.variance || 0;
+    const dirClass = r.isRemoved || r.hasActual ? 'text-secondary'
+      : v > 0 ? 'text-red font-bold' : v < 0 ? 'text-green' : 'text-secondary';
+    const dirLabel = r.isRemoved ? '<span class="badge badge-medium">Removed</span>'
+      : r.isNew  ? '<span class="badge badge-info">New</span>'
+      : r.hasActual ? '<span class="badge badge-success">Complete</span>'
+      : v > 0 ? '<span class="badge badge-critical">Slipped</span>'
+      : v < 0 ? '<span class="badge badge-low">Recovered</span>'
       : '<span class="badge badge-medium">No Change</span>';
-    return `<tr>
-      <td><strong>${r.name}</strong></td>
+    rows.push(`<tr data-parent-wbs="${parentKey}">
+      <td style="padding-left:${pLeft}px;font-size:13px;"><span style="color:#94a3b8;margin-right:6px;font-size:10px;">◆</span>${r.name}</td>
       <td>${App.formatDate(r.prevDate) || '—'}</td>
       <td>${App.formatDate(r.curDate) || '—'}</td>
       <td class="${dirClass}">${r.variance !== null ? (r.variance > 0 ? '+' : '') + r.variance + 'd' : '—'}</td>
       <td>${dirLabel}</td>
-    </tr>`;
-  }).join('');
+    </tr>`);
+  };
+
+  const renderMsNode = (node, depth, parentKey) => {
+    if (!msHasItems(node)) return;
+    const count  = msCountItems(node);
+    const key    = 'ms_cmp_' + node.id.replace(/\W/g, '_');
+    const indent = depth * 20;
+    const bg     = depth === 0 ? '#f1f0fb' : depth === 1 ? '#f8f7fd' : '#fafafa';
+    const bw     = Math.max(4 - depth, 2);
+    rows.push(`<tr class="wbs-row" data-wbs-id="${key}" data-parent-wbs="${parentKey}"
+      onclick="window._toggleWBS('${key}')" style="cursor:pointer;background:${bg};">
+      <td colspan="5" style="padding:7px 8px 7px ${indent + 8}px;border-left:${bw}px solid #7c6fe0;">
+        <span id="arr-${key}" style="display:inline-block;width:14px;font-size:9px;color:#7c6fe0;">▼</span>
+        <strong style="font-size:13px;color:#1e1b4b;">${node.name || node.code}</strong>
+        <span style="margin-left:8px;font-size:11px;color:#64748b;">${count} change${count !== 1 ? 's' : ''}</span>
+      </td>
+    </tr>`);
+    node.children.forEach(child => renderMsNode(child, depth + 1, key));
+    node.ownItems.forEach(r => renderMsItem(r, key, depth));
+  };
+
+  const useTree = msRoots.length > 0 && visible.some(r => r.wbsId);
+  if (useTree) {
+    msRoots.forEach(r => renderMsNode(r, 0, ''));
+    if (msUnassigned.length > 0) {
+      const uk = 'ms_cmp_unassigned';
+      rows.push(`<tr class="wbs-row" data-wbs-id="${uk}" data-parent-wbs=""
+        onclick="window._toggleWBS('${uk}')" style="cursor:pointer;background:#f8fafc;">
+        <td colspan="5" style="padding:7px 8px;border-left:2px solid #94a3b8;">
+          <span id="arr-${uk}" style="display:inline-block;width:14px;font-size:9px;color:#94a3b8;">▼</span>
+          <strong style="font-size:13px;color:#64748b;">Other Milestones</strong>
+          <span style="margin-left:8px;font-size:11px;color:#94a3b8;">${msUnassigned.length}</span>
+        </td>
+      </tr>`);
+      msUnassigned.forEach(r => renderMsItem(r, uk, 0));
+    }
+  } else {
+    // No WBS data — flat list
+    visible.forEach(r => {
+      const v = r.variance || 0;
+      const dirClass = r.isRemoved || r.hasActual ? 'text-secondary'
+        : v > 0 ? 'text-red font-bold' : v < 0 ? 'text-green' : 'text-secondary';
+      const dirLabel = r.isRemoved ? '<span class="badge badge-medium">Removed</span>'
+        : r.isNew  ? '<span class="badge badge-info">New</span>'
+        : r.hasActual ? '<span class="badge badge-success">Complete</span>'
+        : v > 0 ? '<span class="badge badge-critical">Slipped</span>'
+        : v < 0 ? '<span class="badge badge-low">Recovered</span>'
+        : '<span class="badge badge-medium">No Change</span>';
+      rows.push(`<tr>
+        <td style="font-size:13px;"><span style="color:#94a3b8;margin-right:6px;font-size:10px;">◆</span>${r.name}</td>
+        <td>${App.formatDate(r.prevDate) || '—'}</td>
+        <td>${App.formatDate(r.curDate) || '—'}</td>
+        <td class="${dirClass}">${r.variance !== null ? (r.variance > 0 ? '+' : '') + r.variance + 'd' : '—'}</td>
+        <td>${dirLabel}</td>
+      </tr>`);
+    });
+  }
+
+  tbody.innerHTML = rows.join('');
 }
 
 // ── Activity Changes ──────────────────────────────────────────
@@ -607,189 +688,188 @@ function renderActivityChanges() {
     return;
   }
 
-  // Match by task_code (user-visible, stable across P6 exports) then fall back to task_id
+  const pd = s => s ? new Date(String(s).replace(' ', 'T')) : null;
   const keyOf = a => a.code || a.id;
   const map1  = new Map(a1.map(a => [keyOf(a), a]));
   const keys1 = new Set(a1.map(a => keyOf(a)));
   const keys2 = new Set(a2.map(a => keyOf(a)));
-
   const changes = [];
 
-  // Added activities (in v2, not in v1)
+  // Added
   a2.filter(a => !keys1.has(keyOf(a))).forEach(a => {
-    changes.push({
-      type: 'added', code: keyOf(a), name: a.name, wbsId: a.wbsId || null,
-      priorStart: null, curStart: a.earlyStart || a.plannedStart || null,
-      priorFinish: null, curFinish: a.earlyFinish || a.plannedFinish || null,
-      finishVariance: null, floatDelta: null
-    });
+    changes.push({ type:'added', code:keyOf(a), name:a.name, wbsId:a.wbsId||null,
+      priorStart:null, curStart:a.earlyStart||a.plannedStart||null,
+      priorFinish:null, curFinish:a.earlyFinish||a.plannedFinish||null,
+      finishVariance:null, floatDelta:null });
   });
 
-  // Removed activities (in v1, not in v2)
+  // Removed
   a1.filter(a => !keys2.has(keyOf(a))).forEach(a => {
-    changes.push({
-      type: 'removed', code: keyOf(a), name: a.name, wbsId: a.wbsId || null,
-      priorStart: a.earlyStart || a.plannedStart || null, curStart: null,
-      priorFinish: a.earlyFinish || a.plannedFinish || null, curFinish: null,
-      finishVariance: null, floatDelta: null
-    });
+    changes.push({ type:'removed', code:keyOf(a), name:a.name, wbsId:a.wbsId||null,
+      priorStart:a.earlyStart||a.plannedStart||null, curStart:null,
+      priorFinish:a.earlyFinish||a.plannedFinish||null, curFinish:null,
+      finishVariance:null, floatDelta:null });
   });
 
-  // Changed activities (present in both versions)
+  // Changed (dates shifted)
   a2.filter(a => keys1.has(keyOf(a))).forEach(a => {
     const prev = map1.get(keyOf(a));
-
-    // Prefer early (calculated) dates; fall back to planned (target) dates
     const priorStart  = prev.earlyStart  || prev.plannedStart  || null;
     const curStart    = a.earlyStart     || a.plannedStart     || null;
     const priorFinish = prev.earlyFinish || prev.plannedFinish || null;
     const curFinish   = a.earlyFinish    || a.plannedFinish    || null;
-
-    const startChanged  = (priorStart  || '') !== (curStart  || '');
-    const finishChanged = (priorFinish || '') !== (curFinish || '');
-    if (!startChanged && !finishChanged) return;
-
+    if ((priorStart||'') === (curStart||'') && (priorFinish||'') === (curFinish||'')) return;
     let finishVariance = null;
-    if (priorFinish && curFinish) {
-      finishVariance = Math.round((new Date(curFinish) - new Date(priorFinish)) / 86400000);
-    }
+    const d1 = pd(priorFinish), d2 = pd(curFinish);
+    if (d1 && d2) finishVariance = Math.round((d2 - d1) / 86400000);
     const floatDelta = (typeof a.totalFloat === 'number' && typeof prev.totalFloat === 'number')
       ? (a.totalFloat - prev.totalFloat) : null;
-
-    changes.push({
-      type: 'changed', code: keyOf(a), name: a.name, wbsId: a.wbsId || null,
-      priorStart, curStart, priorFinish, curFinish,
-      finishVariance, floatDelta
-    });
+    changes.push({ type:'changed', code:keyOf(a), name:a.name, wbsId:a.wbsId||null,
+      priorStart, curStart, priorFinish, curFinish, finishVariance, floatDelta });
   });
 
-  // Sort: biggest slippage first, recoveries after, added/removed at end
+  // Sort: biggest slippage first
   changes.sort((a, b) => {
     if (a.type === 'removed' && b.type !== 'removed') return 1;
     if (b.type === 'removed' && a.type !== 'removed') return -1;
-    const va = a.finishVariance ?? 0;
-    const vb = b.finishVariance ?? 0;
-    return vb - va;
+    return (b.finishVariance ?? 0) - (a.finishVariance ?? 0);
   });
 
   _allActivityChanges = changes;
 
-  // Build WBS map and populate dropdown from v2's wbsLookup
+  // Build WBS label map for display
   _wbsMap = new Map();
-  const wbsSel = document.getElementById('actWbsFilter');
-  if (wbsSel) {
-    wbsSel.innerHTML = '<option value="">All Work Packages</option>';
-    const wbsSource = _v2?.wbsLookup || _v1?.wbsLookup || [];
-    wbsSource.forEach(w => {
-      _wbsMap.set(w.id, w.name || w.code || w.id);
-    });
-    // Collect WBS IDs actually referenced by changed activities
-    const usedWbs = new Set();
-    (_v2?.activityLookup || []).forEach(a => { if (a.wbsId) usedWbs.add(a.wbsId); });
-    const wbsInChanges = new Set(changes.map(c => c.wbsId).filter(Boolean));
-    wbsSource
-      .filter(w => wbsInChanges.has(w.id))
-      .forEach(w => {
-        const opt = document.createElement('option');
-        opt.value = w.id;
-        opt.textContent = (w.code ? w.code + ' — ' : '') + (w.name || w.id);
-        wbsSel.appendChild(opt);
-      });
-  }
+  ((_v2?.wbsLookup || _v1?.wbsLookup) || []).forEach(w => _wbsMap.set(w.id, w.name || w.code || w.id));
 
-  // Update header badge
-  const changed = changes.filter(c => c.type === 'changed').length;
-  const added   = changes.filter(c => c.type === 'added').length;
-  const removed = changes.filter(c => c.type === 'removed').length;
   const badge = document.getElementById('actChangeBadge');
-  if (badge) badge.textContent = `${changed} changed · ${added} added · ${removed} removed`;
+  if (badge) {
+    const ch = changes.filter(c => c.type==='changed').length;
+    const ad = changes.filter(c => c.type==='added').length;
+    const rm = changes.filter(c => c.type==='removed').length;
+    badge.textContent = `${ch} changed · ${ad} added · ${rm} removed`;
+  }
 
   filterActivityChanges();
 }
 
-function _renderActivityRows(changes) {
+function filterActivityChanges() {
+  const q     = (document.getElementById('actSearch')?.value || '').toLowerCase().trim();
+  const typeF = document.getElementById('actTypeFilter')?.value || '';
+  _filteredActivityChanges = _allActivityChanges.filter(c => {
+    if (typeF && c.type !== typeF) return false;
+    if (q && !(c.name||'').toLowerCase().includes(q) && !(c.code||'').toLowerCase().includes(q)) return false;
+    return true;
+  });
+  _renderActivityTree();
+}
+
+function _renderActivityTree() {
   const tbody = document.getElementById('activityChanges');
   if (!tbody) return;
+  const changes = _filteredActivityChanges;
+  const hasFilters = !!(document.getElementById('actSearch')?.value || document.getElementById('actTypeFilter')?.value);
 
   if (changes.length === 0) {
-    const hasFilters = (document.getElementById('actSearch')?.value || '') ||
-                       (document.getElementById('actWbsFilter')?.value || '') ||
-                       (document.getElementById('actTypeFilter')?.value || '');
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:24px;">
-      ${hasFilters ? 'No activities match the current filters.' : 'No activity date changes between these versions.'}
-    </td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:24px;">${
+      hasFilters ? 'No activities match the current filters.' : 'No activity date changes between these versions.'
+    }</td></tr>`;
     return;
   }
+
+  // Build WBS tree
+  const wbsSource = _v2?.wbsLookup || _v1?.wbsLookup || [];
+  const wbsTreeMap = new Map();
+  wbsSource.forEach(w => wbsTreeMap.set(w.id, { ...w, children:[], ownItems:[] }));
+  const actRoots = [];
+  wbsTreeMap.forEach(node => {
+    if (node.parentId && wbsTreeMap.has(node.parentId)) wbsTreeMap.get(node.parentId).children.push(node);
+    else actRoots.push(node);
+  });
+
+  const actUnassigned = [];
+  changes.forEach(c => {
+    const node = c.wbsId ? wbsTreeMap.get(c.wbsId) : null;
+    if (node) node.ownItems.push(c);
+    else actUnassigned.push(c);
+  });
+
+  const actHasItems  = n => n.ownItems.length > 0 || n.children.some(actHasItems);
+  const actCountItems = n => n.ownItems.length + n.children.reduce((s, c) => s + actCountItems(c), 0);
+
+  const rows = [];
+  // Auto-expand all groups when a filter is active so results are visible
+  const autoExpand = hasFilters;
 
   const fmtDelta = (prev, cur) => {
     if (!prev && !cur) return '—';
     if (!prev) return `<span class="text-green">${App.formatDate(cur)}</span>`;
-    if (!cur)  return `<span class="text-red">${App.formatDate(prev)}</span>`;
-    if ((prev || '') === (cur || '')) return `<span style="color:#94a3b8;font-size:11px;">${App.formatDate(cur)}</span>`;
+    if (!cur)  return `<span class="text-red" style="text-decoration:line-through;">${App.formatDate(prev)}</span>`;
+    if ((prev||'') === (cur||'')) return `<span style="color:#94a3b8;font-size:11px;">${App.formatDate(cur)}</span>`;
     return `<span style="color:#94a3b8;text-decoration:line-through;font-size:11px;">${App.formatDate(prev)}</span> <strong>${App.formatDate(cur)}</strong>`;
   };
 
-  tbody.innerHTML = changes.map(c => {
-    const varDays  = c.finishVariance;
-    const varClass = varDays > 0 ? 'text-red font-bold' : varDays < 0 ? 'text-green' : 'text-secondary';
-    const varText  = varDays !== null ? `${varDays > 0 ? '+' : ''}${varDays}d` : '—';
+  const renderActItem = (c, parentKey, hidden) => {
+    const vd = c.finishVariance;
+    const varClass = vd > 0 ? 'text-red font-bold' : vd < 0 ? 'text-green' : 'text-secondary';
+    const varText  = vd !== null ? `${vd > 0 ? '+' : ''}${vd}d` : '—';
     const floatTxt = c.floatDelta !== null ? `${c.floatDelta > 0 ? '+' : ''}${c.floatDelta}d` : '—';
     const floatCls = c.floatDelta !== null ? (c.floatDelta < 0 ? 'text-red' : c.floatDelta > 0 ? 'text-green' : 'text-secondary') : 'text-secondary';
-    const rowBg    = c.type === 'added' ? 'background:#f0fdf4;' : c.type === 'removed' ? 'background:#fff5f5;' : '';
-    const wbsName  = c.wbsId ? (_wbsMap.get(c.wbsId) || c.wbsId) : '—';
-    return `<tr style="${rowBg}">
+    const rowBg    = c.type==='added' ? 'background:#f0fdf4;' : c.type==='removed' ? 'background:#fff5f5;' : '';
+    rows.push(`<tr data-parent-wbs="${parentKey}" style="${rowBg}${hidden ? 'display:none;' : ''}">
       <td><code style="font-size:11px;">${c.code}</code></td>
-      <td style="max-width:200px;font-size:13px;">${c.name || '—'}</td>
-      <td style="max-width:140px;font-size:11px;color:#64748b;">${wbsName}</td>
+      <td style="font-size:13px;">${c.name || '—'}</td>
       <td style="font-size:12px;">${fmtDelta(c.priorStart, c.curStart)}</td>
       <td style="font-size:12px;">${fmtDelta(c.priorFinish, c.curFinish)}</td>
       <td class="${varClass}">${varText}</td>
       <td class="${floatCls}">${floatTxt}</td>
-    </tr>`;
-  }).join('');
-}
+    </tr>`);
+  };
 
-function filterActivityChanges() {
-  const q      = (document.getElementById('actSearch')?.value || '').toLowerCase().trim();
-  const wbsId  = document.getElementById('actWbsFilter')?.value  || '';
-  const typeF  = document.getElementById('actTypeFilter')?.value || '';
+  const renderActNode = (node, depth, parentKey, parentHidden) => {
+    if (!actHasItems(node)) return;
+    const count  = actCountItems(node);
+    const key    = 'act_cmp_' + node.id.replace(/\W/g, '_');
+    const indent = depth * 20;
+    const bg     = depth === 0 ? '#f1f0fb' : depth === 1 ? '#f8f7fd' : '#fafafa';
+    const bw     = Math.max(4 - depth, 2);
+    // Default collapsed unless filtering
+    const expanded = autoExpand;
+    const arrow    = expanded ? '▼' : '▶';
+    rows.push(`<tr class="wbs-row" data-wbs-id="${key}" data-parent-wbs="${parentKey}"
+      onclick="window._toggleWBS('${key}')" style="cursor:pointer;background:${bg};${parentHidden ? 'display:none;' : ''}">
+      <td colspan="6" style="padding:7px 8px 7px ${indent + 8}px;border-left:${bw}px solid #7c6fe0;">
+        <span id="arr-${key}" style="display:inline-block;width:14px;font-size:9px;color:#7c6fe0;">${arrow}</span>
+        <strong style="font-size:13px;color:#1e1b4b;">${node.name || node.code}</strong>
+        <span style="margin-left:8px;font-size:11px;color:#64748b;">${count} change${count !== 1 ? 's' : ''}</span>
+      </td>
+    </tr>`);
+    const childHidden = !expanded || !!parentHidden;
+    node.children.forEach(child => renderActNode(child, depth + 1, key, childHidden));
+    node.ownItems.forEach(c => renderActItem(c, key, childHidden));
+  };
 
-  _filteredActivityChanges = _allActivityChanges.filter(c => {
-    if (typeF && c.type !== typeF) return false;
-    if (wbsId && c.wbsId !== wbsId) return false;
-    if (q && !(c.name || '').toLowerCase().includes(q) && !(c.code || '').toLowerCase().includes(q)) return false;
-    return true;
-  });
+  const useTree = actRoots.length > 0 && changes.some(c => c.wbsId);
+  if (useTree) {
+    actRoots.forEach(r => renderActNode(r, 0, '', false));
+    if (actUnassigned.length > 0) {
+      const uk = 'act_cmp_unassigned';
+      const arrow = autoExpand ? '▼' : '▶';
+      rows.push(`<tr class="wbs-row" data-wbs-id="${uk}" data-parent-wbs=""
+        onclick="window._toggleWBS('${uk}')" style="cursor:pointer;background:#f8fafc;">
+        <td colspan="6" style="padding:7px 8px;border-left:2px solid #94a3b8;">
+          <span id="arr-${uk}" style="display:inline-block;width:14px;font-size:9px;color:#94a3b8;">${arrow}</span>
+          <strong style="font-size:13px;color:#64748b;">Unassigned</strong>
+          <span style="margin-left:8px;font-size:11px;color:#94a3b8;">${actUnassigned.length} change${actUnassigned.length !== 1 ? 's' : ''}</span>
+        </td>
+      </tr>`);
+      actUnassigned.forEach(c => renderActItem(c, uk, !autoExpand));
+    }
+  } else {
+    // No WBS — flat list
+    changes.forEach(c => renderActItem(c, '', false));
+  }
 
-  _actPage = 0;
-  _renderActivityPage();
-}
-
-function actChangePage(dir) {
-  const maxPage = Math.max(0, Math.ceil(_filteredActivityChanges.length / ACT_PAGE_SIZE) - 1);
-  _actPage = Math.min(maxPage, Math.max(0, _actPage + dir));
-  _renderActivityPage();
-}
-
-function _renderActivityPage() {
-  const total  = _filteredActivityChanges.length;
-  const start  = _actPage * ACT_PAGE_SIZE;
-  const end    = Math.min(start + ACT_PAGE_SIZE, total);
-  const page   = _filteredActivityChanges.slice(start, end);
-  const maxPage = Math.max(0, Math.ceil(total / ACT_PAGE_SIZE) - 1);
-
-  _renderActivityRows(page);
-
-  const info = document.getElementById('actPageInfo');
-  if (info) info.textContent = total === 0 ? 'No results' : `Showing ${start + 1}–${end} of ${total} activities`;
-
-  const prev = document.getElementById('actPrevBtn');
-  const next = document.getElementById('actNextBtn');
-  if (prev) prev.disabled = _actPage === 0;
-  if (next) next.disabled = _actPage >= maxPage;
-
-  const pag = document.getElementById('actPagination');
-  if (pag) pag.style.display = total > ACT_PAGE_SIZE ? 'flex' : 'none';
+  tbody.innerHTML = rows.join('');
 }
 
 // ── Float Distribution Chart ──────────────────────────────────

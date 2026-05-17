@@ -383,10 +383,19 @@ const App = {
     return 'Poor';
   },
 
+  // Parse XER/P6 date strings — handles both "YYYY-MM-DD HH:MM" (XER) and ISO formats
+  _parseDate(dateStr) {
+    if (!dateStr) return new Date(0);
+    // XER stores dates as "2026-03-28 00:00" — replace space with T for spec-compliant parsing
+    const d = new Date(String(dateStr).replace(' ', 'T'));
+    return isNaN(d.getTime()) ? new Date(dateStr) : d;
+  },
+
   formatDate(dateStr) {
     if (!dateStr) return 'N/A';
     try {
-      return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const d = this._parseDate(dateStr);
+      return isNaN(d.getTime()) ? dateStr : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     } catch(e) { return dateStr; }
   },
 
@@ -533,7 +542,11 @@ const App = {
       if (v) return v;
     }
 
-    const realCurrent = projectVersions.filter(v => v.isReal).sort((a, b) => (b.id > a.id ? 1 : -1));
+    const realCurrent = projectVersions.filter(v => v.isReal).sort((a, b) => {
+      const da = this._parseDate(a.dataDate);
+      const db = this._parseDate(b.dataDate);
+      return db - da; // newest data date first
+    });
     if (realCurrent.length > 0) return realCurrent[0];
 
     const current = projectVersions.find(v => v.status === 'current');
@@ -740,33 +753,7 @@ const App = {
     }
 
     const milestones = version.milestones;
-    const wbsList    = version.wbsLookup || [];
-
-    // Build WBS map and tree
-    const wbsMap = new Map();
-    wbsList.forEach(w => wbsMap.set(w.id, { ...w, children: [], ownMilestones: [] }));
-    const roots = [];
-    wbsMap.forEach(node => {
-      if (node.parentId && wbsMap.has(node.parentId)) {
-        wbsMap.get(node.parentId).children.push(node);
-      } else {
-        roots.push(node);
-      }
-    });
-
-    // Assign milestones to their WBS node
-    const unassigned = [];
-    milestones.forEach(m => {
-      const node = m.wbsId ? wbsMap.get(m.wbsId) : null;
-      if (node) node.ownMilestones.push(m);
-      else unassigned.push(m);
-    });
-
-    // Recursive helpers
-    function getAllMilestones(node) {
-      return [...node.ownMilestones, ...node.children.flatMap(getAllMilestones)];
-    }
-    function countTotal(node) { return getAllMilestones(node).length; }
+    const fmt = d => this.formatDate(d);
 
     // Summary badges
     const total    = milestones.length;
@@ -776,96 +763,37 @@ const App = {
     if (summaryDiv) {
       summaryDiv.innerHTML = `
         <span class="badge badge-low">${done} Complete</span>
-        <span class="badge badge-critical">${critical} Critical</span>
-        <span class="badge badge-info">${scheduled} Scheduled</span>
-        <span class="badge badge-medium">${total} Total</span>`;
+        <span class="badge badge-critical">${critical} Critical / At Risk</span>
+        <span class="badge badge-info">${scheduled} Scheduled</span>`;
     }
 
-    const fmt = d => this.formatDate(d);
-    const rows = [];
+    // Sort: critical (neg float) first, then by planned finish, completed last
+    const sorted = [...milestones].sort((a, b) => {
+      const ac = isComplete(a), bc = isComplete(b);
+      if (ac !== bc) return ac ? 1 : -1;
+      const af = typeof a.totalFloat === 'number' ? a.totalFloat : 9999;
+      const bf = typeof b.totalFloat === 'number' ? b.totalFloat : 9999;
+      if (af !== bf) return af - bf;
+      return (a.plannedFinish || a.plannedStart || '').localeCompare(b.plannedFinish || b.plannedStart || '');
+    });
 
-    const renderNode = (node, depth) => {
-      const total = countTotal(node);
-      if (total === 0) return;
-      const wbsKey  = 'wbsn_' + node.id.replace(/\W/g, '_');
-      const parentKey = (node.parentId && wbsMap.has(node.parentId))
-        ? 'wbsn_' + node.parentId.replace(/\W/g, '_') : '';
-      const indent  = depth * 20;
-      const bgColor = depth === 0 ? '#f1f0fb' : depth === 1 ? '#f8f7fd' : '#fafafa';
-      const bdWidth = Math.max(4 - depth, 2);
-      const doneCount = getAllMilestones(node).filter(isComplete).length;
-
-      rows.push(`<tr class="wbs-row" data-wbs-id="${wbsKey}" data-parent-wbs="${parentKey}"
-        onclick="window._toggleWBS('${wbsKey}')" style="cursor:pointer;background:${bgColor};">
-        <td colspan="5" style="padding:7px 8px 7px ${indent + 8}px;border-left:${bdWidth}px solid #7c6fe0;">
-          <span id="arr-${wbsKey}" style="display:inline-block;width:14px;font-size:9px;color:#7c6fe0;">▼</span>
-          <strong style="font-size:13px;color:#1e1b4b;">${node.name || node.code}</strong>
-          <span style="margin-left:8px;font-size:11px;color:#64748b;">${total} milestone${total !== 1 ? 's' : ''}</span>
-          ${doneCount > 0 ? `<span class="badge badge-low" style="margin-left:6px;font-size:10px;">${doneCount} done</span>` : ''}
-        </td>
-      </tr>`);
-
-      node.children.forEach(child => renderNode(child, depth + 1));
-
-      node.ownMilestones.forEach(m => {
-        const comp  = isComplete(m);
-        const isCrit = !comp && typeof m.totalFloat === 'number' && m.totalFloat <= 0;
-        const statusLabel = comp ? 'Complete' : isCrit ? 'Critical' : 'Scheduled';
-        const statusBadge = comp ? 'badge-success' : isCrit ? 'badge-critical' : 'badge-info';
-        const floatCls    = m.totalFloat < 0 ? 'text-red' : m.totalFloat === 0 ? 'text-amber' : 'text-green';
-        const mIndent     = (depth + 1) * 20 + 8;
-        rows.push(`<tr class="milestone-row" data-parent-wbs="${wbsKey}">
-          <td style="padding-left:${mIndent}px;font-size:13px;">
-            <span style="color:#94a3b8;margin-right:6px;font-size:10px;">◆</span>${m.name}
-          </td>
-          <td>${fmt(m.plannedFinish || m.plannedStart)}</td>
-          <td>${comp ? fmt(m.actualFinish) : fmt(m.earlyFinish || m.plannedFinish)}</td>
-          <td class="${floatCls}">${typeof m.totalFloat === 'number' ? (m.totalFloat > 0 ? '+' : '') + Math.round(m.totalFloat) + 'd' : 'N/A'}</td>
-          <td><span class="badge ${statusBadge}">${statusLabel}</span></td>
-        </tr>`);
-      });
-    };
-
-    if (roots.length > 0) {
-      roots.forEach(r => renderNode(r, 0));
-      if (unassigned.length > 0) {
-        const uk = 'wbsn_unassigned';
-        rows.push(`<tr class="wbs-row" data-wbs-id="${uk}" data-parent-wbs=""
-          onclick="window._toggleWBS('${uk}')" style="cursor:pointer;background:#f8fafc;">
-          <td colspan="5" style="padding:7px 8px;border-left:2px solid #94a3b8;">
-            <span id="arr-${uk}" style="display:inline-block;width:14px;font-size:9px;color:#94a3b8;">▼</span>
-            <strong style="font-size:13px;color:#64748b;">Other Milestones</strong>
-            <span style="margin-left:8px;font-size:11px;color:#94a3b8;">${unassigned.length}</span>
-          </td>
-        </tr>`);
-        unassigned.forEach(m => {
-          const comp  = isComplete(m);
-          const isCrit = !comp && typeof m.totalFloat === 'number' && m.totalFloat <= 0;
-          rows.push(`<tr class="milestone-row" data-parent-wbs="${uk}">
-            <td style="padding-left:28px;font-size:13px;"><span style="color:#94a3b8;margin-right:6px;font-size:10px;">◆</span>${m.name}</td>
-            <td>${fmt(m.plannedFinish || m.plannedStart)}</td>
-            <td>${comp ? fmt(m.actualFinish) : fmt(m.earlyFinish || m.plannedFinish)}</td>
-            <td class="${m.totalFloat < 0 ? 'text-red' : m.totalFloat === 0 ? 'text-amber' : 'text-green'}">${typeof m.totalFloat === 'number' ? (m.totalFloat > 0 ? '+' : '') + Math.round(m.totalFloat) + 'd' : 'N/A'}</td>
-            <td><span class="badge ${comp ? 'badge-success' : isCrit ? 'badge-critical' : 'badge-info'}">${comp ? 'Complete' : isCrit ? 'Critical' : 'Scheduled'}</span></td>
-          </tr>`);
-        });
-      }
-    } else {
-      // No WBS structure — flat list
-      milestones.forEach(m => {
-        const comp  = isComplete(m);
-        const isCrit = !comp && typeof m.totalFloat === 'number' && m.totalFloat <= 0;
-        rows.push(`<tr>
-          <td style="font-size:13px;">${m.name}</td>
-          <td>${fmt(m.plannedFinish || m.plannedStart)}</td>
-          <td>${comp ? fmt(m.actualFinish) : fmt(m.earlyFinish || m.plannedFinish)}</td>
-          <td class="${m.totalFloat < 0 ? 'text-red' : m.totalFloat === 0 ? 'text-amber' : 'text-green'}">${typeof m.totalFloat === 'number' ? (m.totalFloat > 0 ? '+' : '') + Math.round(m.totalFloat) + 'd' : 'N/A'}</td>
-          <td><span class="badge ${comp ? 'badge-success' : isCrit ? 'badge-critical' : 'badge-info'}">${comp ? 'Complete' : isCrit ? 'Critical' : 'Scheduled'}</span></td>
-        </tr>`);
-      });
-    }
-
-    container.innerHTML = rows.join('');
+    container.innerHTML = sorted.map(m => {
+      const comp   = isComplete(m);
+      const isCrit = !comp && typeof m.totalFloat === 'number' && m.totalFloat <= 0;
+      const statusLabel = comp ? 'Complete' : isCrit ? 'Critical' : 'Scheduled';
+      const statusBadge = comp ? 'badge-success' : isCrit ? 'badge-critical' : 'badge-info';
+      const floatCls    = typeof m.totalFloat === 'number'
+        ? (m.totalFloat < 0 ? 'text-red' : m.totalFloat === 0 ? 'text-amber' : 'text-green') : '';
+      const floatTxt = typeof m.totalFloat === 'number'
+        ? (m.totalFloat > 0 ? '+' : '') + Math.round(m.totalFloat) + 'd' : '—';
+      return `<tr>
+        <td style="font-size:13px;">${m.name}</td>
+        <td>${fmt(m.plannedFinish || m.plannedStart)}</td>
+        <td>${comp ? fmt(m.actualFinish) : fmt(m.earlyFinish || m.plannedFinish)}</td>
+        <td class="${floatCls}">${floatTxt}</td>
+        <td><span class="badge ${statusBadge}">${statusLabel}</span></td>
+      </tr>`;
+    }).join('');
   },
 
   renderScoreTrendChart(project, version) {

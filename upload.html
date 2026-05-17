@@ -533,17 +533,28 @@ async function startUpload() {
     await sleep(150);
   }
 
-  // Mark last (most recent data date) as current
-  if (newVersions.length > 0) newVersions[newVersions.length - 1].status = 'current';
-
   if (!App.scheduleVersions) App.scheduleVersions = [];
-  App.scheduleVersions.forEach(v => {
-    if (v.projectId === projectId && v.status === 'current') v.status = 'published';
-  });
   newVersions.forEach(v => App.scheduleVersions.push(v));
 
+  // Re-sort ALL real versions for this project by data date and reassign sequential labels.
+  // This ensures "Update 1" = earliest data date regardless of upload order or batch size.
+  const parseXERDate = str => {
+    if (!str) return new Date(0);
+    const d = new Date(String(str).replace(' ', 'T'));
+    return isNaN(d.getTime()) ? new Date(str) : d;
+  };
+
+  const allProjectVersions = App.scheduleVersions
+    .filter(v => v.projectId === projectId && v.isReal)
+    .sort((a, b) => parseXERDate(a.dataDate) - parseXERDate(b.dataDate));
+
+  allProjectVersions.forEach((v, i) => {
+    v.version = `Update ${i + 1}`;
+    v.status = i === allProjectVersions.length - 1 ? 'current' : 'published';
+  });
+
   // Update project metadata from most recent version
-  const lastVersion = newVersions[newVersions.length - 1];
+  const lastVersion = allProjectVersions[allProjectVersions.length - 1] || newVersions[newVersions.length - 1];
   const proj = App.projects?.find(p => p.id === projectId);
   if (proj) {
     proj.latestScore = lastVersion.overallScore;
