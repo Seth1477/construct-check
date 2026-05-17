@@ -786,8 +786,8 @@ function renderTrendChart() {
   const realVersions = (App.scheduleVersions || [])
     .filter(v => v.projectId === project.id && v.isReal)
     .sort((a, b) => {
-      const da = a.dataDate ? new Date(a.dataDate + 'T00:00:00') : new Date(0);
-      const db = b.dataDate ? new Date(b.dataDate + 'T00:00:00') : new Date(0);
+      const da = a.dataDate ? new Date(a.dataDate) : new Date(0);
+      const db = b.dataDate ? new Date(b.dataDate) : new Date(0);
       return da - db;
     });
   const realPoints = realVersions.map(v => ({
@@ -833,7 +833,7 @@ function renderTrendChart() {
 
   const labels = chartData.map(h => {
     if (h.dataDate) {
-      const d = new Date(h.dataDate + 'T00:00:00');
+      const d = new Date(h.dataDate);
       return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     }
     return h.version;

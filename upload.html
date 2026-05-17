@@ -429,8 +429,8 @@ async function startUpload() {
 
   // Sort all files by data date ascending so versions are in chronological order
   parsedFiles.sort((a, b) => {
-    const da = a.parsed.project.dataDate ? new Date(a.parsed.project.dataDate + 'T00:00:00') : new Date(0);
-    const db = b.parsed.project.dataDate ? new Date(b.parsed.project.dataDate + 'T00:00:00') : new Date(0);
+    const da = a.parsed.project.dataDate ? new Date(a.parsed.project.dataDate) : new Date(0);
+    const db = b.parsed.project.dataDate ? new Date(b.parsed.project.dataDate) : new Date(0);
     return da - db;
   });
 
