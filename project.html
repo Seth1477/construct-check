@@ -311,26 +311,19 @@
       <!-- MILESTONES TAB -->
       <div class="tab-pane" id="tab-milestones">
         <div class="card">
-          <div class="card-header" style="flex-wrap:wrap;gap:8px;">
-            <h2 class="card-title" style="flex:1">Milestone Status</h2>
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <input type="text" class="form-input" id="msSearch" placeholder="Search milestones…" oninput="filterMilestones()" style="width:160px;" />
-              <select class="form-select" id="msStatusFilter" onchange="filterMilestones()" style="width:140px;">
-                <option value="">All statuses</option>
-                <option value="critical">Critical / Neg Float</option>
-                <option value="scheduled">Scheduled</option>
-                <option value="complete">Complete</option>
-              </select>
-              <button class="info-icon-btn" data-info-topic="milestones" title="Learn about Milestones"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><circle cx="12" cy="8" r="0.5" fill="currentColor"/></svg></button>
-            </div>
-            <div class="milestone-summary" style="width:100%;margin-top:4px;"></div>
+          <div class="card-header">
+            <h2 class="card-title">Milestones</h2>
+            <div class="milestone-summary" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
           <table class="data-table mt-4">
             <thead>
-              <tr><th>Milestone</th><th>Contract Date</th><th>Forecast / Actual</th><th>Float</th><th>Status</th></tr>
+              <tr><th>Milestone</th><th>Planned Date</th><th>Forecast / Actual</th><th>Float</th><th>Status</th></tr>
             </thead>
             <tbody id="milestonesTable"></tbody>
           </table>
+          <div id="msShowAllWrap" style="display:none;padding:12px 0 4px;text-align:center;">
+            <button onclick="renderAllMilestones()" style="background:none;border:none;color:#7c6fe0;font-size:13px;cursor:pointer;font-weight:500;">Show all milestones ↓</button>
+          </div>
         </div>
       </div>
 
@@ -580,44 +573,13 @@ function renderCriticalPath() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// MILESTONES TAB — update summary badges at top
+// MILESTONES TAB — "Show all" expands beyond the default 8-row preview
 // ────────────────────────────────────────────────────────────────
-function renderMilestoneSummary() {
-  const summaryDiv = document.querySelector('.milestone-summary');
-  if (!summaryDiv) return;
-
-  const { version, hasReal } = getCurrentVersion();
-  if (hasReal && version.milestones && version.milestones.length > 0) {
-    const milestones = version.milestones;
-    const complete = milestones.filter(m => !!m.actualFinish).length;
-    const critical = milestones.filter(m => m.totalFloat !== undefined && m.totalFloat <= 0 && !m.actualFinish).length;
-    const scheduled = milestones.length - complete - critical;
-    summaryDiv.innerHTML = `
-      <span class="badge" style="background:#22c55e20;color:#16a34a">${complete} Complete</span>
-      ${critical > 0 ? `<span class="badge badge-critical">${critical} Critical</span>` : ''}
-      <span class="badge badge-medium">${milestones.length} Total Milestones</span>
-    `;
-  }
-  // else leave demo defaults
-}
-
-// ────────────────────────────────────────────────────────────────
-// MILESTONE FILTER
-// ────────────────────────────────────────────────────────────────
-function filterMilestones() {
-  const q      = (document.getElementById('msSearch')?.value || '').toLowerCase().trim();
-  const status = document.getElementById('msStatusFilter')?.value || '';
-  const all    = window._dashMilestones || [];
-
-  const filtered = all.filter(m => {
-    if (q && !(m.name || '').toLowerCase().includes(q)) return false;
-    if (status === 'critical'  && !m._isCrit) return false;
-    if (status === 'scheduled' && (m._comp || m._isCrit)) return false;
-    if (status === 'complete'  && !m._comp) return false;
-    return true;
-  });
-
-  App._renderMilestoneRows(filtered);
+function renderAllMilestones() {
+  const all = window._dashMilestones || [];
+  App._renderMilestoneRows(all);
+  const wrap = document.getElementById('msShowAllWrap');
+  if (wrap) wrap.style.display = 'none';
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1100,7 +1062,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   populateVersionSelector();
   renderCriticalPath();
-  renderMilestoneSummary();
   renderVersionHistory();
   renderTrendChart();
   renderScoringTable();

@@ -636,6 +636,7 @@ const App = {
     if (scoreEl) {
       scoreEl.style.setProperty('--score', overallScore);
       scoreEl.className = `score-ring score-ring-${this.getRAGClass(overallScore)}`;
+      scoreEl.setAttribute('data-value', overallScore);
     }
 
     Object.entries(scores).forEach(([key, cat]) => {
@@ -755,17 +756,21 @@ const App = {
     if (!container) return;
 
     const summaryDiv = document.querySelector('.milestone-summary');
+    const showAllWrap = document.getElementById('msShowAllWrap');
+    const PREVIEW_LIMIT = 8;
+
     const isComplete = m => m.status === 'TK_Complete' ||
       (m.actualFinish && m.actualFinish.trim() !== '' && !m.actualFinish.startsWith('0000'));
 
     if (!(version && version.isReal && version.milestones && version.milestones.length > 0)) {
       if (summaryDiv) summaryDiv.innerHTML = '';
-      container.innerHTML = DEMO_MILESTONES.map(m => {
+      if (showAllWrap) showAllWrap.style.display = 'none';
+      container.innerHTML = DEMO_MILESTONES.slice(0, PREVIEW_LIMIT).map(m => {
         const varClass = m.variance > 30 ? 'text-red' : m.variance > 10 ? 'text-amber' : 'text-green';
         const statusLabel = { complete:'Complete', slipping:'Slipping', at_risk:'At Risk', on_track:'On Track' }[m.status] || m.status;
         const statusBadge = { complete:'badge-success', slipping:'badge-critical', at_risk:'badge-high', on_track:'badge-low' }[m.status] || 'badge-info';
         return `<tr>
-          <td>${m.name}${m.isCritical ? ' <span class="badge badge-critical">Critical</span>' : ''}</td>
+          <td style="font-size:13px;">${m.name}</td>
           <td>${this.formatDate(m.plannedDate)}</td>
           <td>${m.actualDate ? this.formatDate(m.actualDate) : this.formatDate(m.forecastDate)}</td>
           <td class="${varClass}">${m.variance > 0 ? '+' : ''}${m.variance}d</td>
@@ -776,18 +781,18 @@ const App = {
     }
 
     const milestones = version.milestones;
-    const fmt = d => this.formatDate(d);
 
-    // Summary badges
+    // Summary chips
     const total    = milestones.length;
     const done     = milestones.filter(isComplete).length;
     const critical = milestones.filter(m => !isComplete(m) && typeof m.totalFloat === 'number' && m.totalFloat <= 0).length;
     const scheduled = total - done - critical;
     if (summaryDiv) {
-      summaryDiv.innerHTML = `
-        <span class="badge badge-low">${done} Complete</span>
-        <span class="badge badge-critical">${critical} Critical / At Risk</span>
-        <span class="badge badge-info">${scheduled} Scheduled</span>`;
+      summaryDiv.innerHTML =
+        `<span class="badge" style="background:#22c55e20;color:#16a34a;font-weight:600;">${done} Complete</span>` +
+        (critical > 0 ? `<span class="badge badge-critical">${critical} Critical</span>` : '') +
+        `<span class="badge badge-info">${scheduled} Scheduled</span>` +
+        `<span style="font-size:12px;color:#94a3b8;margin-left:4px;">${total} total</span>`;
     }
 
     // Sort: critical (neg float) first, then by planned finish, completed last
@@ -800,14 +805,15 @@ const App = {
       return (a.plannedFinish || a.plannedStart || '').localeCompare(b.plannedFinish || b.plannedStart || '');
     });
 
-    // Expose sorted list globally so filterMilestones() can filter without re-rendering
     window._dashMilestones = sorted.map(m => {
       const comp   = isComplete(m);
       const isCrit = !comp && typeof m.totalFloat === 'number' && m.totalFloat <= 0;
       return { ...m, _comp: comp, _isCrit: isCrit };
     });
 
-    this._renderMilestoneRows(window._dashMilestones);
+    // Show only the preview slice by default; "Show all" button reveals the rest
+    this._renderMilestoneRows(window._dashMilestones.slice(0, PREVIEW_LIMIT));
+    if (showAllWrap) showAllWrap.style.display = total > PREVIEW_LIMIT ? '' : 'none';
   },
 
   _renderMilestoneRows(list) {
@@ -816,7 +822,7 @@ const App = {
     const fmt = d => this.formatDate(d);
 
     if (list.length === 0) {
-      container.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">No milestones match the current filter.</td></tr>`;
+      container.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">No milestones found in this schedule.</td></tr>`;
       return;
     }
 
@@ -825,7 +831,7 @@ const App = {
       const isCrit = m._isCrit;
       const statusLabel = comp ? 'Complete' : isCrit ? 'Critical' : 'Scheduled';
       const statusBadge = comp ? 'badge-success' : isCrit ? 'badge-critical' : 'badge-info';
-      const floatCls    = typeof m.totalFloat === 'number'
+      const floatCls = typeof m.totalFloat === 'number'
         ? (m.totalFloat < 0 ? 'text-red' : m.totalFloat === 0 ? 'text-amber' : 'text-green') : '';
       const floatTxt = typeof m.totalFloat === 'number'
         ? (m.totalFloat > 0 ? '+' : '') + Math.round(m.totalFloat) + 'd' : '—';
