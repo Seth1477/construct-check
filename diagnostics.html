@@ -479,9 +479,12 @@ function buildDiagCard(d) {
             <span class="diag-stat-value text-secondary">${d.percent}%</span>
             <span class="diag-stat-label">of Total</span>
           </div>
-          <div class="diag-stat">
-            <span class="diag-stat-value text-red">-${d.penalty.toFixed(1)}</span>
-            <span class="diag-stat-label">Score Impact</span>
+          <div class="diag-stat" title="Points deducted from your 100-point baseline score. Total penalties across all issues = 100 − your overall score.">
+            <span class="diag-stat-value text-red">−${d.penalty.toFixed(1)} pts</span>
+            <span class="diag-stat-label" style="display:flex;align-items:center;gap:3px;">
+              Score Penalty
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><circle cx="12" cy="8" r="0.5" fill="#94a3b8"/></svg>
+            </span>
           </div>
         </div>
       </div>
@@ -656,67 +659,110 @@ function renderScoreSummary(version) {
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
             ${catCards}
           </div>
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid #f1f0fb;font-size:12px;color:#94a3b8;line-height:1.6;">
+            <strong style="color:#64748b;">How your score is calculated:</strong>
+            Each schedule starts at <strong style="color:#1e1b4b;">100 points</strong>.
+            Every flagged issue carries a penalty based on how many activities are affected and the severity of the problem.
+            The penalties across all six categories are summed and deducted, giving your final score.
+            A score ≥ 85 is <span style="color:#16a34a;font-weight:700;">Good</span>,
+            70–84 is <span style="color:#d97706;font-weight:700;">Moderate</span>,
+            and below 70 is <span style="color:#dc2626;font-weight:700;">At Risk</span>.
+          </div>
         </div>
 
       </div>
     </div>`;
 }
 
-// ─── Charts ───────────────────────────────────────────────────────────────────
+// ─── Charts (pure HTML/CSS — no library, always renders) ─────────────────────
 function renderCharts(diagData) {
   const catEl = document.getElementById('categoryChart');
   const sevEl = document.getElementById('severityChart');
-  if (!window.Plot || !diagData || diagData.length === 0) return;
 
-  // ── Issues by Category (bar chart) ───────────────────────────
-  if (catEl) {
-    const catMap = {};
-    diagData.forEach(d => { catMap[d.category] = (catMap[d.category] || 0) + d.count; });
-    const data = Object.entries(catMap).map(([category, count]) => ({ category, count }));
-    const CAT_COLORS = ['#ef4444','#f97316','#f59e0b','#10b981','#7c6fe0','#0ea5e9','#64748b'];
-    const catW = Math.round(catEl.getBoundingClientRect().width) || catEl.offsetWidth || 400;
-    catEl.innerHTML = '';
-    catEl.appendChild(Plot.plot({
-      width:  catW,
-      height: catEl.offsetHeight || 200,
-      marginBottom: 52,
-      style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
-      color: { domain: data.map(d => d.category), range: CAT_COLORS },
-      x: { label: null, tickRotate: -30 },
-      y: { label: 'Issues', grid: true, tickFormat: d => d >= 1000 ? `${(d/1000).toFixed(1)}k` : d },
-      marks: [
-        Plot.barY(data, { x: 'category', y: 'count', fill: 'category', rx: 5, tip: true }),
-        Plot.ruleY([0])
-      ]
-    }));
+  const empty = '<p style="color:#94a3b8;font-size:13px;text-align:center;padding:60px 0;">No data</p>';
+  if (!diagData || diagData.length === 0) {
+    if (catEl) catEl.innerHTML = empty;
+    if (sevEl) sevEl.innerHTML = empty;
+    return;
   }
 
-  // ── Issues by Severity (horizontal bar — counts affected activities) ─────────
+  // ── Issues by Category — horizontal bars, activity counts ─────
+  if (catEl) {
+    const CAT_COLORS = {
+      'Logic Quality':              '#7c6fe0',
+      'Date Integrity':             '#0ea5e9',
+      'Constraints & Float':        '#f59e0b',
+      'Activity Hygiene':           '#10b981',
+      'Progress Realism':           '#f97316',
+      'Critical Path Reliability':  '#ef4444',
+    };
+    const catMap = {};
+    diagData.forEach(d => { catMap[d.category] = (catMap[d.category] || 0) + d.count; });
+    const entries = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
+    const maxVal  = entries[0]?.[1] || 1;
+    const total   = entries.reduce((s, [, v]) => s + v, 0);
+
+    catEl.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:11px;padding:6px 0;">
+        ${entries.map(([cat, count]) => {
+          const pct   = Math.round((count / maxVal) * 100);
+          const share = Math.round((count / total) * 100);
+          const color = CAT_COLORS[cat] || '#64748b';
+          const short = cat.replace('Critical Path Reliability', 'Critical Path').replace('Constraints & Float', 'Constraints');
+          return `
+            <div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                <span style="font-size:11px;color:#374151;font-weight:600;">${short}</span>
+                <span style="font-size:11px;color:#64748b;">${count.toLocaleString()} <span style="color:#94a3b8;">(${share}%)</span></span>
+              </div>
+              <div style="background:#f1f5f9;border-radius:5px;height:14px;overflow:hidden;">
+                <div style="width:${pct}%;background:${color};height:100%;border-radius:5px;min-width:4px;"></div>
+              </div>
+            </div>`;
+        }).join('')}
+      </div>`;
+  }
+
+  // ── Issues by Severity — horizontal bars, activity counts ─────
   if (sevEl) {
-    const sevMap = { Critical: 0, High: 0, Medium: 0, Low: 0 };
-    diagData.forEach(d => {
-      const k = d.severity.charAt(0).toUpperCase() + d.severity.slice(1).toLowerCase();
-      if (sevMap[k] !== undefined) sevMap[k] += d.count; // sum affected activities, not rule count
-    });
-    const data = Object.entries(sevMap).filter(([,v]) => v > 0).map(([severity, count]) => ({ severity, count }));
-    const w = Math.round(sevEl.getBoundingClientRect().width) || sevEl.offsetWidth || 300;
-    const h = sevEl.offsetHeight || 200;
-    sevEl.innerHTML = '';
-    sevEl.appendChild(Plot.plot({
-      width: w, height: h,
-      marginLeft: 68,
-      style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
-      color: {
-        domain: ['Critical', 'High', 'Medium', 'Low'],
-        range:  ['#ef4444',  '#f97316', '#f59e0b', '#0ea5e9']
-      },
-      x: { label: 'Activities flagged', grid: true },
-      y: { label: null, domain: ['Critical', 'High', 'Medium', 'Low'] },
-      marks: [
-        Plot.barX(data, { y: 'severity', x: 'count', fill: 'severity', rx: 5, tip: true }),
-        Plot.ruleX([0])
-      ]
-    }));
+    const SEV = [
+      { key: 'critical', label: 'Critical', color: '#ef4444', bg: '#fef2f2' },
+      { key: 'high',     label: 'High',     color: '#f97316', bg: '#fff7ed' },
+      { key: 'medium',   label: 'Medium',   color: '#f59e0b', bg: '#fffbeb' },
+      { key: 'low',      label: 'Low',      color: '#0ea5e9', bg: '#f0f9ff' },
+    ];
+    const sevMap = {};
+    diagData.forEach(d => { sevMap[d.severity] = (sevMap[d.severity] || 0) + d.count; });
+    const active = SEV.filter(s => sevMap[s.key] > 0);
+    const maxVal = Math.max(...active.map(s => sevMap[s.key]));
+    const total  = active.reduce((s, s2) => s + sevMap[s2.key], 0);
+
+    sevEl.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:14px;padding:6px 0;">
+        ${active.map(s => {
+          const count = sevMap[s.key];
+          const pct   = Math.round((count / maxVal) * 100);
+          const share = Math.round((count / total) * 100);
+          return `
+            <div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+                <span style="display:inline-flex;align-items:center;gap:6px;">
+                  <span style="width:9px;height:9px;border-radius:50%;background:${s.color};display:inline-block;flex-shrink:0;"></span>
+                  <span style="font-size:12px;font-weight:700;color:${s.color};">${s.label}</span>
+                </span>
+                <span style="font-size:12px;font-weight:700;color:#1e1b4b;">${count.toLocaleString()}
+                  <span style="font-size:11px;color:#94a3b8;font-weight:400;">&nbsp;${share}%</span>
+                </span>
+              </div>
+              <div style="background:#f1f5f9;border-radius:6px;height:16px;overflow:hidden;">
+                <div style="width:${pct}%;background:${s.color};height:100%;border-radius:6px;min-width:4px;opacity:0.85;"></div>
+              </div>
+            </div>`;
+        }).join('')}
+        <div style="padding-top:4px;border-top:1px solid #f1f5f9;font-size:11px;color:#94a3b8;text-align:right;">
+          ${total.toLocaleString()} total activities flagged
+        </div>
+      </div>`;
   }
 }
 
@@ -1029,7 +1075,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderScoreSummary(_activeVersion);
     updateChips(diagData);
     renderCards(diagData);
-    setTimeout(() => renderCharts(diagData), 80);
+    renderCharts(diagData);
 
   } else if (_diagProject) {
     // Project exists but no real uploads yet
