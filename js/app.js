@@ -718,36 +718,154 @@ const App = {
     const container = document.querySelector('#milestonesTable');
     if (!container) return;
 
-    if (version && version.isReal && version.milestones && version.milestones.length > 0) {
-      container.innerHTML = version.milestones.map(m => {
-        const isCritical = m.totalFloat !== undefined && m.totalFloat <= 0;
-        const hasActual = m.status === 'TK_Complete' || (m.actualFinish && m.actualFinish.trim() !== '' && !m.actualFinish.startsWith('0000'));
-        const statusLabel = hasActual ? 'Complete' : (isCritical ? 'Critical' : 'Scheduled');
-        const statusBadge = hasActual ? 'badge-success' : (isCritical ? 'badge-critical' : 'badge-info');
-        const floatClass = m.totalFloat < 0 ? 'text-red' : m.totalFloat === 0 ? 'text-amber' : 'text-green';
+    const summaryDiv = document.querySelector('.milestone-summary');
+    const isComplete = m => m.status === 'TK_Complete' ||
+      (m.actualFinish && m.actualFinish.trim() !== '' && !m.actualFinish.startsWith('0000'));
+
+    if (!(version && version.isReal && version.milestones && version.milestones.length > 0)) {
+      if (summaryDiv) summaryDiv.innerHTML = '';
+      container.innerHTML = DEMO_MILESTONES.map(m => {
+        const varClass = m.variance > 30 ? 'text-red' : m.variance > 10 ? 'text-amber' : 'text-green';
+        const statusLabel = { complete:'Complete', slipping:'Slipping', at_risk:'At Risk', on_track:'On Track' }[m.status] || m.status;
+        const statusBadge = { complete:'badge-success', slipping:'badge-critical', at_risk:'badge-high', on_track:'badge-low' }[m.status] || 'badge-info';
         return `<tr>
-          <td>${m.name}${isCritical ? ' <span class="badge badge-critical">Critical</span>' : ''}</td>
-          <td>${this.formatDate(m.plannedFinish || m.plannedStart)}</td>
-          <td>${hasActual ? this.formatDate(m.actualFinish) : this.formatDate(m.earlyFinish)}</td>
-          <td class="${floatClass}">${m.totalFloat !== undefined ? (m.totalFloat > 0 ? '+' : '') + Math.round(m.totalFloat) + 'd' : 'N/A'}</td>
+          <td>${m.name}${m.isCritical ? ' <span class="badge badge-critical">Critical</span>' : ''}</td>
+          <td>${this.formatDate(m.plannedDate)}</td>
+          <td>${m.actualDate ? this.formatDate(m.actualDate) : this.formatDate(m.forecastDate)}</td>
+          <td class="${varClass}">${m.variance > 0 ? '+' : ''}${m.variance}d</td>
           <td><span class="badge ${statusBadge}">${statusLabel}</span></td>
         </tr>`;
       }).join('');
       return;
     }
 
-    container.innerHTML = DEMO_MILESTONES.map(m => {
-      const varClass = m.variance > 30 ? 'text-red' : m.variance > 10 ? 'text-amber' : 'text-green';
-      const statusLabel = { complete: 'Complete', slipping: 'Slipping', at_risk: 'At Risk', on_track: 'On Track' }[m.status] || m.status;
-      const statusBadge = { complete: 'badge-success', slipping: 'badge-critical', at_risk: 'badge-high', on_track: 'badge-low' }[m.status] || 'badge-info';
-      return `<tr>
-        <td>${m.name}${m.isCritical ? ' <span class="badge badge-critical">Critical</span>' : ''}</td>
-        <td>${this.formatDate(m.plannedDate)}</td>
-        <td>${m.actualDate ? this.formatDate(m.actualDate) : this.formatDate(m.forecastDate)}</td>
-        <td class="${varClass}">${m.variance > 0 ? '+' : ''}${m.variance}d</td>
-        <td><span class="badge ${statusBadge}">${statusLabel}</span></td>
-      </tr>`;
-    }).join('');
+    const milestones = version.milestones;
+    const wbsList    = version.wbsLookup || [];
+
+    // Build WBS map and tree
+    const wbsMap = new Map();
+    wbsList.forEach(w => wbsMap.set(w.id, { ...w, children: [], ownMilestones: [] }));
+    const roots = [];
+    wbsMap.forEach(node => {
+      if (node.parentId && wbsMap.has(node.parentId)) {
+        wbsMap.get(node.parentId).children.push(node);
+      } else {
+        roots.push(node);
+      }
+    });
+
+    // Assign milestones to their WBS node
+    const unassigned = [];
+    milestones.forEach(m => {
+      const node = m.wbsId ? wbsMap.get(m.wbsId) : null;
+      if (node) node.ownMilestones.push(m);
+      else unassigned.push(m);
+    });
+
+    // Recursive helpers
+    function getAllMilestones(node) {
+      return [...node.ownMilestones, ...node.children.flatMap(getAllMilestones)];
+    }
+    function countTotal(node) { return getAllMilestones(node).length; }
+
+    // Summary badges
+    const total    = milestones.length;
+    const done     = milestones.filter(isComplete).length;
+    const critical = milestones.filter(m => !isComplete(m) && typeof m.totalFloat === 'number' && m.totalFloat <= 0).length;
+    const scheduled = total - done - critical;
+    if (summaryDiv) {
+      summaryDiv.innerHTML = `
+        <span class="badge badge-low">${done} Complete</span>
+        <span class="badge badge-critical">${critical} Critical</span>
+        <span class="badge badge-info">${scheduled} Scheduled</span>
+        <span class="badge badge-medium">${total} Total</span>`;
+    }
+
+    const fmt = d => this.formatDate(d);
+    const rows = [];
+
+    const renderNode = (node, depth) => {
+      const total = countTotal(node);
+      if (total === 0) return;
+      const wbsKey  = 'wbsn_' + node.id.replace(/\W/g, '_');
+      const parentKey = (node.parentId && wbsMap.has(node.parentId))
+        ? 'wbsn_' + node.parentId.replace(/\W/g, '_') : '';
+      const indent  = depth * 20;
+      const bgColor = depth === 0 ? '#f1f0fb' : depth === 1 ? '#f8f7fd' : '#fafafa';
+      const bdWidth = Math.max(4 - depth, 2);
+      const doneCount = getAllMilestones(node).filter(isComplete).length;
+
+      rows.push(`<tr class="wbs-row" data-wbs-id="${wbsKey}" data-parent-wbs="${parentKey}"
+        onclick="window._toggleWBS('${wbsKey}')" style="cursor:pointer;background:${bgColor};">
+        <td colspan="5" style="padding:7px 8px 7px ${indent + 8}px;border-left:${bdWidth}px solid #7c6fe0;">
+          <span id="arr-${wbsKey}" style="display:inline-block;width:14px;font-size:9px;color:#7c6fe0;">▼</span>
+          <strong style="font-size:13px;color:#1e1b4b;">${node.name || node.code}</strong>
+          <span style="margin-left:8px;font-size:11px;color:#64748b;">${total} milestone${total !== 1 ? 's' : ''}</span>
+          ${doneCount > 0 ? `<span class="badge badge-low" style="margin-left:6px;font-size:10px;">${doneCount} done</span>` : ''}
+        </td>
+      </tr>`);
+
+      node.children.forEach(child => renderNode(child, depth + 1));
+
+      node.ownMilestones.forEach(m => {
+        const comp  = isComplete(m);
+        const isCrit = !comp && typeof m.totalFloat === 'number' && m.totalFloat <= 0;
+        const statusLabel = comp ? 'Complete' : isCrit ? 'Critical' : 'Scheduled';
+        const statusBadge = comp ? 'badge-success' : isCrit ? 'badge-critical' : 'badge-info';
+        const floatCls    = m.totalFloat < 0 ? 'text-red' : m.totalFloat === 0 ? 'text-amber' : 'text-green';
+        const mIndent     = (depth + 1) * 20 + 8;
+        rows.push(`<tr class="milestone-row" data-parent-wbs="${wbsKey}">
+          <td style="padding-left:${mIndent}px;font-size:13px;">
+            <span style="color:#94a3b8;margin-right:6px;font-size:10px;">◆</span>${m.name}
+          </td>
+          <td>${fmt(m.plannedFinish || m.plannedStart)}</td>
+          <td>${comp ? fmt(m.actualFinish) : fmt(m.earlyFinish || m.plannedFinish)}</td>
+          <td class="${floatCls}">${typeof m.totalFloat === 'number' ? (m.totalFloat > 0 ? '+' : '') + Math.round(m.totalFloat) + 'd' : 'N/A'}</td>
+          <td><span class="badge ${statusBadge}">${statusLabel}</span></td>
+        </tr>`);
+      });
+    };
+
+    if (roots.length > 0) {
+      roots.forEach(r => renderNode(r, 0));
+      if (unassigned.length > 0) {
+        const uk = 'wbsn_unassigned';
+        rows.push(`<tr class="wbs-row" data-wbs-id="${uk}" data-parent-wbs=""
+          onclick="window._toggleWBS('${uk}')" style="cursor:pointer;background:#f8fafc;">
+          <td colspan="5" style="padding:7px 8px;border-left:2px solid #94a3b8;">
+            <span id="arr-${uk}" style="display:inline-block;width:14px;font-size:9px;color:#94a3b8;">▼</span>
+            <strong style="font-size:13px;color:#64748b;">Other Milestones</strong>
+            <span style="margin-left:8px;font-size:11px;color:#94a3b8;">${unassigned.length}</span>
+          </td>
+        </tr>`);
+        unassigned.forEach(m => {
+          const comp  = isComplete(m);
+          const isCrit = !comp && typeof m.totalFloat === 'number' && m.totalFloat <= 0;
+          rows.push(`<tr class="milestone-row" data-parent-wbs="${uk}">
+            <td style="padding-left:28px;font-size:13px;"><span style="color:#94a3b8;margin-right:6px;font-size:10px;">◆</span>${m.name}</td>
+            <td>${fmt(m.plannedFinish || m.plannedStart)}</td>
+            <td>${comp ? fmt(m.actualFinish) : fmt(m.earlyFinish || m.plannedFinish)}</td>
+            <td class="${m.totalFloat < 0 ? 'text-red' : m.totalFloat === 0 ? 'text-amber' : 'text-green'}">${typeof m.totalFloat === 'number' ? (m.totalFloat > 0 ? '+' : '') + Math.round(m.totalFloat) + 'd' : 'N/A'}</td>
+            <td><span class="badge ${comp ? 'badge-success' : isCrit ? 'badge-critical' : 'badge-info'}">${comp ? 'Complete' : isCrit ? 'Critical' : 'Scheduled'}</span></td>
+          </tr>`);
+        });
+      }
+    } else {
+      // No WBS structure — flat list
+      milestones.forEach(m => {
+        const comp  = isComplete(m);
+        const isCrit = !comp && typeof m.totalFloat === 'number' && m.totalFloat <= 0;
+        rows.push(`<tr>
+          <td style="font-size:13px;">${m.name}</td>
+          <td>${fmt(m.plannedFinish || m.plannedStart)}</td>
+          <td>${comp ? fmt(m.actualFinish) : fmt(m.earlyFinish || m.plannedFinish)}</td>
+          <td class="${m.totalFloat < 0 ? 'text-red' : m.totalFloat === 0 ? 'text-amber' : 'text-green'}">${typeof m.totalFloat === 'number' ? (m.totalFloat > 0 ? '+' : '') + Math.round(m.totalFloat) + 'd' : 'N/A'}</td>
+          <td><span class="badge ${comp ? 'badge-success' : isCrit ? 'badge-critical' : 'badge-info'}">${comp ? 'Complete' : isCrit ? 'Critical' : 'Scheduled'}</span></td>
+        </tr>`);
+      });
+    }
+
+    container.innerHTML = rows.join('');
   },
 
   renderScoreTrendChart(project, version) {
@@ -1039,4 +1157,30 @@ document.addEventListener('DOMContentLoaded', () => {
     : Promise.resolve();
   authReady.then(() => App.init());
 });
+// WBS tree toggle — used by the milestone tab's expand/collapse rows
+window._toggleWBS = function(wbsKey) {
+  const arrowEl = document.getElementById('arr-' + wbsKey);
+  const isExpanded = !arrowEl || arrowEl.textContent.trim() === '▼';
+  document.querySelectorAll('[data-parent-wbs="' + wbsKey + '"]').forEach(function(row) {
+    if (isExpanded) {
+      row.style.display = 'none';
+      var childKey = row.getAttribute('data-wbs-id');
+      if (childKey) window._collapseWBS(childKey);
+    } else {
+      row.style.display = '';
+    }
+  });
+  if (arrowEl) arrowEl.textContent = isExpanded ? '▶' : '▼';
+};
+
+window._collapseWBS = function(wbsKey) {
+  document.querySelectorAll('[data-parent-wbs="' + wbsKey + '"]').forEach(function(row) {
+    row.style.display = 'none';
+    var childKey = row.getAttribute('data-wbs-id');
+    if (childKey) window._collapseWBS(childKey);
+  });
+  var arrowEl = document.getElementById('arr-' + wbsKey);
+  if (arrowEl) arrowEl.textContent = '▶';
+};
+
 window.App = App;

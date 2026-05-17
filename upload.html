@@ -480,7 +480,12 @@ async function startUpload() {
       totalFloat: a.totalFloat, isCritical: a.isCritical
     }));
 
-    const wbsLookup = (parsed.wbs || []).map(w => ({ id: w.id, code: w.code, name: w.name }));
+    const wbsLookup = (parsed.wbs || []).map(w => ({
+        id:       w.id,
+        parentId: w.parentId || '',
+        code:     w.code,
+        name:     w.name
+      }));
 
     const trimmedCP = {
       longestPath: (cpResult.longestPath || []).slice(0, 40).map(a => ({
@@ -492,9 +497,9 @@ async function startUpload() {
       projectDuration: cpResult.projectDuration
     };
 
-    const trimmedMilestones = (parsed.milestones || []).slice(0, 40).map(m => ({
+    const trimmedMilestones = (parsed.milestones || []).map(m => ({
       id: m.id, code: m.code, name: m.name || m.code || 'Milestone',
-      type: m.type, status: m.status,
+      type: m.type, status: m.status, wbsId: m.wbsId || '',
       plannedStart: m.plannedStart, plannedFinish: m.plannedFinish,
       earlyStart: m.earlyStart, earlyFinish: m.earlyFinish,
       actualStart: m.actualStart, actualFinish: m.actualFinish,
