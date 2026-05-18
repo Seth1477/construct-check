@@ -352,7 +352,14 @@ function ruleCount(version, ruleKey) {
   return getRule(version, ruleKey)?.count || 0;
 }
 function catScore(version, catKey) {
-  return version?.categoryScores?.[catKey]?.score ?? null;
+  if (version?.categoryScores?.[catKey] != null) return version.categoryScores[catKey]?.score ?? null;
+  // Demo version fallback — look up from DEMO_SCORE_HISTORY by version name
+  if (version?.isDemo && _compProject) {
+    const history = (window.DEMO_SCORE_HISTORY || {})[_compProject.id] || [];
+    const entry = history.find(h => h.version === version.version) || history[history.length - 1];
+    if (entry?.[catKey] != null) return entry[catKey]; // stored as plain numbers
+  }
+  return null;
 }
 
 // Count activities by float bucket directly from activityLookup
@@ -451,8 +458,21 @@ function renderMilestoneChanges() {
   const tbody = document.getElementById('milestoneChanges');
   if (!tbody) return;
 
-  const m1 = _v1?.milestones || [];
-  const m2 = _v2?.milestones || [];
+  // For demo versions without inline milestone arrays, derive from DEMO_MILESTONES:
+  // v1 (baseline reference) uses plannedDate — the original clean schedule
+  // v2 (current/updated)   uses forecastDate — showing actual slippage
+  const _demoMs = _compProject ? ((window.DEMO_MILESTONES || {})[_compProject.id] || []) : [];
+  const _demoMilestones = (v, asBaseline) => _demoMs.length === 0 ? [] : _demoMs.map(m => ({
+    id: m.id, name: m.name, code: m.id,
+    earlyFinish:    asBaseline ? m.plannedDate : (m.forecastDate || m.plannedDate),
+    plannedFinish:  asBaseline ? m.plannedDate : (m.forecastDate || m.plannedDate),
+    actualDate:     asBaseline ? null : m.actualDate,
+    status:         asBaseline ? 'published' : m.status,
+    isCritical:     m.isCritical
+  }));
+
+  const m1 = _v1?.milestones || (_v1?.isDemo ? _demoMilestones(_v1, true)  : []);
+  const m2 = _v2?.milestones || (_v2?.isDemo ? _demoMilestones(_v2, false) : []);
   const badge = document.getElementById('milestoneSlippedBadge');
   const hideCompleted = document.getElementById('hideCompletedMilestones')?.checked !== false;
 

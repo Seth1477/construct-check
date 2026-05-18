@@ -814,9 +814,15 @@ function confirmDeleteVersion(versionId, versionLabel) {
 // ────────────────────────────────────────────────────────────────
 // SCORE TREND CHART
 // ────────────────────────────────────────────────────────────────
-function renderTrendChart() {
+function renderTrendChart(_retries) {
   const canvas = document.getElementById('scoreTrendChart');
-  if (!canvas || !window.Chart) return;
+  if (!canvas) return;
+
+  // Chart.js is loaded in <head> but may not have initialised yet — retry up to 5×
+  if (typeof Chart === 'undefined') {
+    if ((_retries || 0) < 5) setTimeout(() => renderTrendChart((_retries || 0) + 1), 200);
+    return;
+  }
 
   const { project } = getCurrentVersion();
   if (!project) return;
