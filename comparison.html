@@ -82,22 +82,14 @@
         <div class="comp-version-label">BASELINE / REFERENCE</div>
         <select class="form-select comp-select" id="baselineSelect">
         </select>
-        <div class="comp-version-detail" id="baselineDetail">
-          <span class="badge badge-info">Update 6</span>
-          <span class="text-sm text-secondary">Data Date: Sep 1, 2025</span>
-          <span class="score-pill score-pill-amber">72</span>
-        </div>
+        <div class="comp-version-detail" id="baselineDetail"></div>
       </div>
       <div class="comp-arrow">⇄</div>
       <div class="comp-version-block">
         <div class="comp-version-label">CURRENT / UPDATED</div>
         <select class="form-select comp-select" id="currentSelect">
         </select>
-        <div class="comp-version-detail" id="currentDetail">
-          <span class="badge badge-medium">Update 7</span>
-          <span class="text-sm text-secondary">Data Date: Jan 1, 2026</span>
-          <span class="score-pill score-pill-amber">71</span>
-        </div>
+        <div class="comp-version-detail" id="currentDetail"></div>
       </div>
       <button class="btn btn-primary" onclick="runComparison()">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
@@ -322,6 +314,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   baselineSelect.value = _compVersions[0].id;
   currentSelect.value  = _compVersions[_compVersions.length - 1].id;
 
+  // Render detail badges initially and keep them in sync with select changes
+  renderVersionDetail(baselineSelect.value, 'baselineDetail');
+  renderVersionDetail(currentSelect.value,  'currentDetail');
+  baselineSelect.addEventListener('change', () => renderVersionDetail(baselineSelect.value, 'baselineDetail'));
+  currentSelect.addEventListener('change',  () => renderVersionDetail(currentSelect.value,  'currentDetail'));
+
   // Re-render charts when their tab becomes visible (charts fail at 0-width)
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -331,6 +329,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   runComparison();
 });
+
+// ── Version Detail Badge ──────────────────────────────────────
+function renderVersionDetail(versionId, detailElId) {
+  const el = document.getElementById(detailElId);
+  if (!el) return;
+  const v = _compVersions.find(v => v.id === versionId);
+  if (!v) { el.innerHTML = ''; return; }
+  const score = v.overallScore ?? 0;
+  const pillCls = score >= 85 ? 'score-pill-green' : score >= 70 ? 'score-pill-amber' : 'score-pill-red';
+  el.innerHTML = `
+    <span class="badge badge-info">${v.version}</span>
+    <span class="text-sm text-secondary">Data Date: ${App.formatDate(v.dataDate)}</span>
+    <span class="score-pill ${pillCls}">${score}</span>`;
+}
 
 // ── Helpers ───────────────────────────────────────────────────
 function getRule(version, ruleKey) {
