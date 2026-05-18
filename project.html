@@ -594,7 +594,7 @@ function renderVersionHistory() {
   const { project } = getCurrentVersion();
   if (!project) return;
 
-  const isDemoProject = ['proj-001', 'proj-002', 'proj-003'].includes(project.id);
+  const isDemoProject = ['proj-001', 'proj-002', 'proj-003', 'proj-004'].includes(project.id);
   const realVersions  = (App.scheduleVersions || []).filter(v => v.projectId === project.id && v.isReal);
   let allVersions;
   if (isDemoProject) {
@@ -821,7 +821,7 @@ function renderTrendChart() {
   const { project } = getCurrentVersion();
   if (!project) return;
 
-  const isDemoProject = ['proj-001', 'proj-002', 'proj-003'].includes(project.id);
+  const isDemoProject = ['proj-001', 'proj-002', 'proj-003', 'proj-004'].includes(project.id);
 
   const parseD = s => s ? new Date(String(s).replace(' ', 'T')) : new Date(0);
   // Gather real uploaded version scores for this project, sorted by data date
@@ -837,7 +837,7 @@ function renderTrendChart() {
   let chartData;
   if (isDemoProject) {
     // Demo projects: show demo history + any real uploads
-    const demoHistory = (window.DEMO_SCORE_HISTORY || []);
+    const demoHistory = ((window.DEMO_SCORE_HISTORY || {})[project.id] || (window.DEMO_SCORE_HISTORY || {})['proj-001'] || []);
     chartData = [...demoHistory, ...realPoints];
   } else {
     // Real projects: show ONLY their real uploads

@@ -586,7 +586,7 @@ const App = {
 
     const version = this._resolveCurrentVersion(project);
     const hasRealData = version && version.isReal && version.analysisResults;
-    const scores = hasRealData ? version.analysisResults.categoryScores : (DEMO_CATEGORY_SCORES['v8'] || {});
+    const scores = hasRealData ? version.analysisResults.categoryScores : (DEMO_CATEGORY_SCORES[project.id] || {});
     const overallScore = hasRealData ? version.overallScore : project.latestScore;
 
     this._injectProjectIdIntoLinks(project);
@@ -732,7 +732,7 @@ const App = {
         const rule = rules.find(r => r.ruleKey === ruleKey);
         return rule ? rule.count : null;
       }
-      const demoDiag = (window.DEMO_DIAGNOSTICS || []).find(d => d.ruleKey === ruleKey);
+      const demoDiag = ((window.DEMO_DIAGNOSTICS || {})[project.id] || []).find(d => d.ruleKey === ruleKey);
       return demoDiag ? demoDiag.count : null;
     };
 
@@ -789,7 +789,7 @@ const App = {
     if (!(version && version.isReal && version.milestones && version.milestones.length > 0)) {
       if (summaryDiv) summaryDiv.innerHTML = '';
       if (showAllWrap) showAllWrap.style.display = 'none';
-      container.innerHTML = DEMO_MILESTONES.slice(0, PREVIEW_LIMIT).map(m => {
+      container.innerHTML = ((DEMO_MILESTONES[project.id]) || []).slice(0, PREVIEW_LIMIT).map(m => {
         const varClass = m.variance > 30 ? 'text-red' : m.variance > 10 ? 'text-amber' : 'text-green';
         const statusLabel = { complete:'Complete', slipping:'Slipping', at_risk:'At Risk', on_track:'On Track' }[m.status] || m.status;
         const statusBadge = { complete:'badge-success', slipping:'badge-critical', at_risk:'badge-high', on_track:'badge-low' }[m.status] || 'badge-info';
@@ -896,7 +896,7 @@ const App = {
         const latest = versions.find(v => v.status === 'current') || versions[versions.length - 1];
         const versionLabel = latest ? latest.version : 'Latest Update';
         const dataDate = latest ? this.formatDate(latest.dataDate) : 'N/A';
-        const totalActivities = (window.DEMO_DIAGNOSTICS || []).reduce((max, d) => Math.max(max, d.totalActivities || 0), 0);
+        const totalActivities = ((window.DEMO_DIAGNOSTICS || {})[project.id] || []).reduce((max, d) => Math.max(max, d.totalActivities || 0), 0);
         this.setEl('#diagSubtitle', `Schedule quality issues identified in ${versionLabel} (Data Date: ${dataDate})${totalActivities ? ` — ${totalActivities.toLocaleString()} activities analyzed` : ''}`);
       }
     }
@@ -906,7 +906,7 @@ const App = {
       rules.sort((a, b) => b.penalty - a.penalty);
       container.innerHTML = rules.map(r => this.buildRuleDiagnosticCard(r)).join('');
     } else {
-      container.innerHTML = DEMO_DIAGNOSTICS.map(d => this.buildDiagnosticCard(d)).join('');
+      container.innerHTML = ((DEMO_DIAGNOSTICS[project.id]) || []).map(d => this.buildDiagnosticCard(d)).join('');
     }
 
     container.querySelectorAll('.diag-toggle').forEach(btn => {
@@ -995,7 +995,7 @@ const App = {
 
   // ─── Comparison ──────────────────────────────────────────────
   renderComparison() {
-    const comp = DEMO_COMPARISON;
+    const comp = (DEMO_COMPARISON[project?.id] || DEMO_COMPARISON['proj-001']);
     const project = this._resolveCurrentProject();
 
     if (project) {
