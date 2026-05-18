@@ -352,9 +352,7 @@ function buildDiagData(version) {
       return sd !== 0 ? sd : b.penalty - a.penalty;
     })
     .map(r => {
-      const activities = (r.affectedIds || []).map(id => {
-        const act = actMap[String(id)];
-        if (!act) return { id: id, name: '—', wbs: '—', startDate: '', finishDate: '', float: 0, isCritical: false };
+      const _mapAct = (act) => {
         const wbs = wbsMap[act.wbsId];
         const wbsLabel = wbs ? (wbs.code && wbs.code !== wbs.name ? `${wbs.code} – ${wbs.name}` : wbs.name || wbs.code || act.wbsId) : (act.wbsId || '—');
         return {
@@ -366,7 +364,82 @@ function buildDiagData(version) {
           float:      isFinite(act.totalFloat) ? Math.round(act.totalFloat) : 0,
           isCritical: !!act.isCritical
         };
+      };
+
+      const activities = (r.affectedIds || []).map(id => {
+        const act = actMap[String(id)];
+        if (!act) return { id: id, name: '—', wbs: '—', startDate: '', finishDate: '', float: 0, isCritical: false };
+        return _mapAct(act);
       });
+
+      // ── Demo fallback: synthesise affected activities from activityLookup ───
+      // Real uploads have affectedIds. Demo rules always have affectedIds:[].
+      // When empty, pick a relevant sample from the actMap so drill-downs work.
+      if (activities.length === 0 && version.isDemo && r.count > 0) {
+        const all = Object.values(actMap);
+        if (all.length > 0) {
+          let pool;
+          switch (r.ruleKey) {
+            case 'NEGATIVE_FLOAT':
+              pool = all.filter(a => a.totalFloat < 0).sort((a, b) => a.totalFloat - b.totalFloat);
+              break;
+            case 'HIGH_FLOAT':
+              pool = all.filter(a => a.totalFloat > 44).sort((a, b) => b.totalFloat - a.totalFloat);
+              break;
+            case 'NEAR_CRITICAL_DENSITY':
+              pool = all.filter(a => a.totalFloat >= 1 && a.totalFloat <= 15).sort((a, b) => a.totalFloat - b.totalFloat);
+              break;
+            case 'OPEN_ENDS_PREDECESSOR':
+            case 'OPEN_ENDS_SUCCESSOR':
+            case 'NEGATIVE_LAG_LEADS':
+            case 'EXCESSIVE_LAG':
+            case 'NON_FS_RELATIONSHIPS':
+              // Logic issues: prefer critical or near-critical path activities
+              pool = all.filter(a => a.isCritical || a.totalFloat <= 8).sort((a, b) => a.totalFloat - b.totalFloat);
+              break;
+            case 'BEHIND_SCHEDULE':
+            case 'OUT_OF_SEQUENCE':
+              // Progress issues: activities with low float (most pressure)
+              pool = all.filter(a => a.totalFloat < 20).sort((a, b) => a.totalFloat - b.totalFloat);
+              break;
+            case 'STARTED_NO_PROGRESS':
+              pool = all.filter(a => a.totalFloat > 0 && a.totalFloat < 30).sort((a, b) => a.totalFloat - b.totalFloat);
+              break;
+            case 'EXCESSIVE_CONSTRAINTS':
+            case 'FUTURE_ACTUALS':
+            case 'INPROGRESS_NO_ACTUAL_START':
+            case 'COMPLETE_NO_ACTUAL_FINISH':
+            case 'INVALID_FORECAST_DATES':
+              // Date/constraint issues: spread across WBS groups
+              pool = all.filter((_, i) => i % 3 === 0);
+              break;
+            case 'LONG_DURATION':
+              // Longest-running activities
+              pool = [...all].sort((a, b) => {
+                const durA = a.earlyFinish && a.earlyStart ? (new Date(a.earlyFinish) - new Date(a.earlyStart)) : 0;
+                const durB = b.earlyFinish && b.earlyStart ? (new Date(b.earlyFinish) - new Date(b.earlyStart)) : 0;
+                return durB - durA;
+              });
+              break;
+            case 'LOE_PERCENTAGE':
+            case 'LOE_CRITICAL':
+            case 'ZERO_DURATION_NON_MILESTONE':
+              pool = all.filter((_, i) => i % 4 === 1);
+              break;
+            default:
+              pool = [...all].sort((a, b) => a.totalFloat - b.totalFloat);
+          }
+          if (pool.length === 0) pool = all;
+          // Take up to min(r.count, 8) with even spacing so we show a spread
+          const take = Math.min(r.count, 8);
+          const step = Math.max(1, Math.floor(pool.length / take));
+          for (let i = 0; i < take; i++) {
+            const act = pool[Math.min(i * step, pool.length - 1)];
+            if (act) activities.push(_mapAct(act));
+          }
+        }
+      }
+      // ── end demo fallback ─────────────────────────────────────────────────────
 
       return {
         ruleKey:     r.ruleKey,
