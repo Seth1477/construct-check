@@ -1496,7 +1496,7 @@ function exportComparison() {
     .footer { margin-top:18pt; padding-top:7pt; border-top:1px solid #e2e8f0; font-size:8pt; color:#94a3b8; display:flex; justify-content:space-between; }
   </style>
 </head>
-<body>
+<body onload="window.print()">
   <div class="header">
     <div>
       <div class="logo-wrap">
@@ -1533,8 +1533,6 @@ function exportComparison() {
     <span>Construct Check &mdash; constructcheck.com</span>
     <span>Generated ${genDate}</span>
   </div>
-  <script>window.onload = function(){ window.print(); };<\/script>
-<script src="js/feedback-widget.js"></script>
 </body>
 </html>`);
   win.document.close();
