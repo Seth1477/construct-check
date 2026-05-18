@@ -818,9 +818,9 @@ function renderTrendChart(_retries) {
   const canvas = document.getElementById('scoreTrendChart');
   if (!canvas) return;
 
-  // Chart.js (CDN) may arrive after this call — retry up to 30× every 200 ms (= 6 s window)
+  // Chart.js is loaded in <head> but may not have initialised yet — retry up to 5×
   if (typeof Chart === 'undefined') {
-    if ((_retries || 0) < 30) setTimeout(() => renderTrendChart((_retries || 0) + 1), 200);
+    if ((_retries || 0) < 5) setTimeout(() => renderTrendChart((_retries || 0) + 1), 200);
     return;
   }
 
@@ -840,7 +840,9 @@ function renderTrendChart(_retries) {
   }));
 
   // If this project has demo history, use it; otherwise use real uploads only
-  const demoHistory = ((window.DEMO_SCORE_HISTORY || {})[project.id] || []);
+  // Note: DEMO_SCORE_HISTORY is a const — not on window — access it directly
+  const _dsh = (typeof DEMO_SCORE_HISTORY !== 'undefined') ? DEMO_SCORE_HISTORY : {};
+  const demoHistory = (_dsh[project.id] || []);
   const chartData = demoHistory.length > 0
     ? [...demoHistory, ...realPoints]   // demo project: demo history + any real uploads
     : realPoints;                        // real project: real uploads only
@@ -1074,17 +1076,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderScoringTable();
   // Sticky scrollbars for all table wrappers (active tab + re-init on tab switch)
   requestAnimationFrame(() => App.initStickyScrollbars());
-});
-
-// Safety-net: if Chart.js CDN arrived after DOMContentLoaded (slow network / cache miss),
-// window.load fires after ALL resources are loaded — guaranteed Chart.js is available by then.
-window.addEventListener('load', () => {
-  const canvas = document.getElementById('scoreTrendChart');
-  if (!canvas) return;
-  // Only re-render if the canvas is still empty (no chart already drawn)
-  if (typeof Chart !== 'undefined' && !Chart.getChart(canvas)) {
-    renderTrendChart();
-  }
 });
 </script>
 <script>
