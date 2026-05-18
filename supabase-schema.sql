@@ -49,3 +49,19 @@ CREATE TRIGGER on_auth_user_created
 INSERT INTO public.user_data (user_id)
 SELECT id FROM auth.users
 ON CONFLICT (user_id) DO NOTHING;
+
+-- ============================================================
+-- Migration: Add Stripe billing columns
+-- Run this in the Supabase SQL Editor after the initial schema.
+-- ============================================================
+
+ALTER TABLE public.user_data
+  ADD COLUMN IF NOT EXISTS stripe_customer_id       text,
+  ADD COLUMN IF NOT EXISTS stripe_subscription_id   text,
+  ADD COLUMN IF NOT EXISTS stripe_status            text,
+  ADD COLUMN IF NOT EXISTS stripe_current_period_end timestamptz;
+
+-- Index for fast customer lookups from webhook handler
+CREATE INDEX IF NOT EXISTS idx_user_data_stripe_customer
+  ON public.user_data (stripe_customer_id)
+  WHERE stripe_customer_id IS NOT NULL;

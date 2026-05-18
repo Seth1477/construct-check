@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Welcome to Pro — Construct Check</title>
+  <link rel="icon" href="favicon.ico"/>
+  <style>
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body {
+      font-family:'Segoe UI',Arial,sans-serif;
+      background:linear-gradient(135deg,#0d0b1e 0%,#1a1535 100%);
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:24px;
+    }
+    .card {
+      background:#fff;
+      border-radius:20px;
+      padding:52px 44px;
+      max-width:500px;
+      width:100%;
+      text-align:center;
+      box-shadow:0 24px 64px rgba(0,0,0,0.4);
+    }
+    .icon { font-size:64px; margin-bottom:20px; }
+    h1 { font-size:28px; font-weight:800; color:#1e1b4b; margin-bottom:10px; }
+    .sub { font-size:16px; color:#64748b; line-height:1.6; margin-bottom:32px; }
+    .badge {
+      display:inline-block;
+      background:#f0edff;
+      color:#7c6fe0;
+      border:1.5px solid #c4b5fd;
+      border-radius:8px;
+      padding:6px 18px;
+      font-size:13px;
+      font-weight:700;
+      margin-bottom:32px;
+    }
+    .features {
+      background:#f8f7ff;
+      border-radius:12px;
+      padding:20px 24px;
+      text-align:left;
+      margin-bottom:32px;
+    }
+    .features li {
+      list-style:none;
+      font-size:14px;
+      color:#374151;
+      padding:5px 0;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .features li::before { content:'✓'; color:#7c6fe0; font-weight:800; }
+    .btn {
+      display:inline-block;
+      width:100%;
+      padding:14px;
+      background:#7c6fe0;
+      color:#fff;
+      font-size:16px;
+      font-weight:700;
+      border:none;
+      border-radius:10px;
+      cursor:pointer;
+      text-decoration:none;
+      transition:background 0.2s;
+    }
+    .btn:hover { background:#5b4ec4; }
+    .loading { color:#94a3b8; font-size:14px; margin-top:16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🎉</div>
+    <h1>You're now on Pro!</h1>
+    <p class="sub">Your payment was successful. Welcome to full, unlimited access to Construct Check.</p>
+    <div class="badge">⚡ Pro Plan Active</div>
+    <ul class="features">
+      <li>Unlimited projects &amp; file uploads</li>
+      <li>Full data views — no row limits</li>
+      <li>Excel &amp; CSV export on all reports</li>
+      <li>Version comparison &amp; full history</li>
+      <li>DCMA+ diagnostics with complete drill-downs</li>
+    </ul>
+    <a href="project.html" class="btn" id="dashBtn">Go to Dashboard →</a>
+    <p class="loading" id="statusMsg">Activating your account…</p>
+  </div>
+
+  <script src="js/supabase-config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script>
+    // The webhook will have already updated the plan in Supabase.
+    // Here we just clear the localStorage plan cache so isPro() re-reads
+    // the updated value on next page load.
+    (async function () {
+      const msg = document.getElementById('statusMsg');
+      try {
+        // Clear any cached plan from localStorage so auth.js re-reads from Supabase
+        const usageRaw = localStorage.getItem('cc_usage');
+        if (usageRaw) {
+          const usage = JSON.parse(usageRaw);
+          // Mark all users in the cache as pro (webhook is authoritative;
+          // worst case the user just has to reload once)
+          Object.keys(usage).forEach(email => { usage[email].plan = 'pro'; });
+          localStorage.setItem('cc_usage', JSON.stringify(usage));
+        }
+        msg.textContent = '✓ Account activated — redirecting…';
+        msg.style.color = '#16a34a';
+        setTimeout(() => { window.location.href = 'project.html'; }, 2500);
+      } catch (e) {
+        msg.textContent = 'Done! Click the button above to continue.';
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -32,10 +32,36 @@
 
   function _userFromSupabase(u) {
     return {
+      id:        u.id,
       name:      u.user_metadata?.name || u.email.split('@')[0],
       email:     u.email,
       createdAt: new Date(u.created_at).getTime(),
     };
+  }
+
+  // Pull the authoritative plan from Supabase user_data and sync to localStorage.
+  // Called on every auth state change so the webhook's plan updates are picked up.
+  async function _syncPlanFromSupabase(sbUser) {
+    if (!SB_OK || !sbUser) return;
+    try {
+      const { data } = await CC_SB
+        .from('user_data')
+        .select('plan')
+        .eq('user_id', sbUser.id)
+        .single();
+      if (data?.plan) {
+        const email = sbUser.email;
+        const all   = lsGet(LS.USAGE) || {};
+        const usage = all[email] || { uploads: 0, plan: 'free' };
+        if (usage.plan !== data.plan) {
+          usage.plan  = data.plan;
+          all[email]  = usage;
+          lsSet(LS.USAGE, all);
+        }
+      }
+    } catch (e) {
+      // silent — localStorage remains the fallback
+    }
   }
 
   // ── LocalStorage helpers ────────────────────────────────────────
@@ -94,11 +120,14 @@
   if (SB_OK) {
     // onAuthStateChange fires once on load with the current session (INITIAL_SESSION event)
     CC_SB.auth.onAuthStateChange((event, session) => {
-      const user = session?.user ? _userFromSupabase(session.user) : null;
+      const sbUser = session?.user || null;
+      const user   = sbUser ? _userFromSupabase(sbUser) : null;
       if (!_sessionReady) {
+        if (sbUser) _syncPlanFromSupabase(sbUser); // sync plan from DB on first load
         _setReady(user);
       } else {
         _session = user;
+        if (sbUser) _syncPlanFromSupabase(sbUser); // keep plan in sync on sign-in
         // If user was signed out from another tab, redirect to login
         if (!user && !_isPublicPage()) {
           window.location.href = 'login.html';
@@ -552,6 +581,24 @@
               <button id="ccSavePw" style="padding:9px 20px;background:#7c6fe0;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">Save New Password</button>
             </div>
           </div>
+          ${!isAdmin && isPro ? `
+          <button onclick="CC._stripePortal(this)"
+            style="width:100%;padding:12px;border:1.5px solid #7c6fe0;border-radius:10px;
+                   background:#f8f7ff;color:#7c6fe0;font-size:14px;font-weight:700;cursor:pointer;
+                   display:flex;align-items:center;justify-content:center;gap:8px;"
+            onmouseover="this.style.background='#f0edff'"
+            onmouseout="this.style.background='#f8f7ff'">
+            ⚙️ Manage Subscription
+          </button>
+          ` : !isAdmin ? `
+          <button onclick="CC._stripeCheckout(this)"
+            style="width:100%;padding:14px;background:#7c6fe0;color:#fff;font-size:15px;
+                   font-weight:700;border:none;border-radius:10px;cursor:pointer;"
+            onmouseover="this.style.background='#5b4ec4'"
+            onmouseout="this.style.background='#7c6fe0'">
+            ⚡ Upgrade to Pro — $20/mo
+          </button>
+          ` : ''}
           ${isAdmin ? `
           <div style="background:#0d0b1e;border-radius:12px;padding:18px 20px;">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
@@ -616,6 +663,86 @@
     });
   }
 
+  // ── Stripe helpers ──────────────────────────────────────────────
+  // Redirect the current user to a Stripe Checkout session for the Pro plan.
+  async function _startStripeCheckout(btnEl) {
+    const user = Auth.currentUser();
+    if (!user) { window.location.href = 'login.html'; return; }
+
+    const cfg = window.CC_STRIPE;
+    if (!cfg || !cfg.functionsUrl || !cfg.publishableKey || cfg.publishableKey.includes('REPLACE')) {
+      // Stripe not yet configured — fall back to pricing page
+      window.location.href = 'index.html#pricing';
+      return;
+    }
+
+    const origText = btnEl ? btnEl.textContent : '';
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Loading…'; }
+
+    try {
+      // Prefer the stored user id; fall back to a live Supabase lookup
+      let userId = user.id;
+      if (!userId && SB_OK) {
+        const { data } = await CC_SB.auth.getUser();
+        userId = data?.user?.id;
+      }
+      if (!userId) throw new Error('Could not determine user ID');
+
+      const resp = await fetch(`${cfg.functionsUrl}/stripe-checkout`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ email: user.email, user_id: userId }),
+      });
+      const json = await resp.json();
+      if (json.url) {
+        window.location.href = json.url;
+      } else {
+        throw new Error(json.error || 'Failed to create checkout session');
+      }
+    } catch (err) {
+      console.error('[stripe-checkout]', err);
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = origText; }
+      alert('Could not start checkout. Please try again.');
+    }
+  }
+
+  // Open the Stripe Customer Portal so the user can manage/cancel their subscription.
+  async function _openStripePortal(btnEl) {
+    const user = Auth.currentUser();
+    if (!user) return;
+
+    const cfg = window.CC_STRIPE;
+    if (!cfg || !cfg.functionsUrl) return;
+
+    const origText = btnEl ? btnEl.textContent : '';
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Loading…'; }
+
+    try {
+      let userId = user.id;
+      if (!userId && SB_OK) {
+        const { data } = await CC_SB.auth.getUser();
+        userId = data?.user?.id;
+      }
+      if (!userId) throw new Error('Could not determine user ID');
+
+      const resp = await fetch(`${cfg.functionsUrl}/stripe-portal`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ user_id: userId }),
+      });
+      const json = await resp.json();
+      if (json.url) {
+        window.location.href = json.url;
+      } else {
+        throw new Error(json.error || 'No portal URL returned');
+      }
+    } catch (err) {
+      console.error('[stripe-portal]', err);
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = origText; }
+      alert('Could not open billing portal. Please try again.');
+    }
+  }
+
   // ── One-time migration cleanup ──────────────────────────────────
   (function () {
     if (localStorage.getItem('sv_projects')) {
@@ -632,10 +759,12 @@
   })();
 
   // ── Expose globally ─────────────────────────────────────────────
-  window.CC        = window.CC || {};
-  window.CC.Auth   = Auth;
-  window.CC.FB_OK  = SB_OK;  // kept for backward compat
-  window.CC.SB_OK  = SB_OK;
+  window.CC               = window.CC || {};
+  window.CC.Auth          = Auth;
+  window.CC.FB_OK         = SB_OK;  // kept for backward compat
+  window.CC.SB_OK         = SB_OK;
+  window.CC._stripeCheckout = _startStripeCheckout;
+  window.CC._stripePortal   = _openStripePortal;
 
   window.CC.showUpgradeModal = function (featureName) {
     const id = 'cc-upgrade-modal';
@@ -662,10 +791,15 @@
             <li>Priority support</li>
           </ul>
         </div>
-        <button onclick="window.location.href='index.html#pricing'" style="width:100%;padding:14px;background:#7c6fe0;color:#fff;font-size:16px;font-weight:700;border:none;border-radius:10px;cursor:pointer;margin-bottom:12px;">Upgrade to Pro — $20/mo</button>
+        <button id="cc-upgrade-modal-btn" style="width:100%;padding:14px;background:#7c6fe0;color:#fff;font-size:16px;font-weight:700;border:none;border-radius:10px;cursor:pointer;margin-bottom:12px;">Upgrade to Pro — $20/mo</button>
         <button onclick="document.getElementById('${id}').style.display='none'" style="width:100%;padding:12px;background:transparent;color:#94a3b8;font-size:14px;border:none;cursor:pointer;">Maybe later</button>
       </div>`;
     document.body.appendChild(overlay);
+    // Wire checkout button (after DOM insertion so the element exists)
+    const upgradeBtn = document.getElementById('cc-upgrade-modal-btn');
+    if (upgradeBtn) {
+      upgradeBtn.addEventListener('click', function () { _startStripeCheckout(this); });
+    }
   };
   // Backward-compat alias
   window.CC.showPaywallModal = function () { window.CC.showUpgradeModal(); };
