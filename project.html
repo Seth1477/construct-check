@@ -818,9 +818,9 @@ function renderTrendChart(_retries) {
   const canvas = document.getElementById('scoreTrendChart');
   if (!canvas) return;
 
-  // Chart.js is loaded in <head> but may not have initialised yet — retry up to 5×
+  // Chart.js (CDN) may arrive after this call — retry up to 30× every 200 ms (= 6 s window)
   if (typeof Chart === 'undefined') {
-    if ((_retries || 0) < 5) setTimeout(() => renderTrendChart((_retries || 0) + 1), 200);
+    if ((_retries || 0) < 30) setTimeout(() => renderTrendChart((_retries || 0) + 1), 200);
     return;
   }
 
@@ -1074,6 +1074,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderScoringTable();
   // Sticky scrollbars for all table wrappers (active tab + re-init on tab switch)
   requestAnimationFrame(() => App.initStickyScrollbars());
+});
+
+// Safety-net: if Chart.js CDN arrived after DOMContentLoaded (slow network / cache miss),
+// window.load fires after ALL resources are loaded — guaranteed Chart.js is available by then.
+window.addEventListener('load', () => {
+  const canvas = document.getElementById('scoreTrendChart');
+  if (!canvas) return;
+  // Only re-render if the canvas is still empty (no chart already drawn)
+  if (typeof Chart !== 'undefined' && !Chart.getChart(canvas)) {
+    renderTrendChart();
+  }
 });
 </script>
 <script>
