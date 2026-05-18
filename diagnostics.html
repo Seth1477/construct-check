@@ -815,8 +815,14 @@ function switchVersion(versionId) {
   const meta = document.getElementById('versionMeta');
   if (meta) meta.textContent = `Uploaded ${App.formatDate(_activeVersion.uploadDate)} · Score: ${_activeVersion.overallScore ?? '—'}/100`;
 
-  const diagData = buildDiagData(_activeVersion);
-  renderScoreSummary(_activeVersion);
+  const _isDemoVer = _activeVersion.isDemo && !_activeVersion.analysisResults;
+  const diagData = _isDemoVer
+    ? ((window.DEMO_DIAGNOSTICS || {})[_diagProject?.id] || [])
+    : buildDiagData(_activeVersion);
+  const _versionForSummary = _isDemoVer
+    ? { ..._activeVersion, categoryScores: ((window.DEMO_CATEGORY_SCORES || {})[_diagProject?.id] || {}) }
+    : _activeVersion;
+  renderScoreSummary(_versionForSummary);
   updateChips(diagData);
   renderCards(diagData);
   setTimeout(() => renderCharts(diagData), 80);
@@ -1154,7 +1160,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const container = document.getElementById('diagnosticsContainer');
   _diagProject  = App._resolveCurrentProject();
   _diagVersions = _diagProject
-    ? App.scheduleVersions.filter(v => v.projectId === _diagProject.id && v.isReal && v.analysisResults)
+    ? App.scheduleVersions.filter(v => v.projectId === _diagProject.id && (v.isReal || v.isDemo))
                           .sort((a, b) => (b.uploadDate || b.id) > (a.uploadDate || a.id) ? 1 : -1)
     : [];
 
@@ -1176,8 +1182,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (_diagVersions.length > 0) {
     // Determine which version to start on
     _activeVersion = App._resolveCurrentVersion(_diagProject);
-    // If resolved version isn't a real one, use latest real
-    if (!_activeVersion || !_activeVersion.isReal || !_activeVersion.analysisResults) {
+    // If resolved version isn't in our list, use latest
+    if (!_activeVersion || !_diagVersions.find(v => v.id === _activeVersion?.id)) {
       _activeVersion = _diagVersions[0];
     }
 
@@ -1198,9 +1204,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Update subtitle
     updateSubtitle(_activeVersion);
 
-    // Build and render
-    const diagData = buildDiagData(_activeVersion);
-    renderScoreSummary(_activeVersion);
+    // Build and render (handle demo versions that lack analysisResults)
+    const isDemoVer = _activeVersion.isDemo && !_activeVersion.analysisResults;
+    const diagData = isDemoVer
+      ? ((window.DEMO_DIAGNOSTICS || {})[_diagProject.id] || [])
+      : buildDiagData(_activeVersion);
+    const versionForSummary = isDemoVer
+      ? { ..._activeVersion, categoryScores: ((window.DEMO_CATEGORY_SCORES || {})[_diagProject.id] || {}) }
+      : _activeVersion;
+    renderScoreSummary(versionForSummary);
     updateChips(diagData);
     renderCards(diagData);
     renderCharts(diagData);
@@ -1222,9 +1234,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   } else {
     // Fallback: show demo data
     if (versionBar) versionBar.style.display = 'none';
-    updateChips(DEMO_DIAGNOSTICS);
-    renderCards(DEMO_DIAGNOSTICS);
-    renderCharts(DEMO_DIAGNOSTICS);
+    const _fallbackDiag = ((window.DEMO_DIAGNOSTICS || {})['proj-004'] || []);
+    updateChips(_fallbackDiag);
+    renderCards(_fallbackDiag);
+    renderCharts(_fallbackDiag);
   }
 });
 </script>

@@ -594,7 +594,7 @@ function renderVersionHistory() {
   const { project } = getCurrentVersion();
   if (!project) return;
 
-  const isDemoProject = ['proj-001', 'proj-002', 'proj-003', 'proj-004'].includes(project.id);
+  const isDemoProject = !!project.isDemo || project.id === 'proj-004';
   const realVersions  = (App.scheduleVersions || []).filter(v => v.projectId === project.id && v.isReal);
   let allVersions;
   if (isDemoProject) {
@@ -929,8 +929,10 @@ function renderScoringTable() {
   const tbody = document.getElementById('scoringTableBody');
   if (!tbody) return;
 
-  const { version, hasReal } = getCurrentVersion();
-  const scores = hasReal ? version.categoryScores : (version && version.categoryScores ? version.categoryScores : (DEMO_CATEGORY_SCORES['v8'] || {}));
+  const { project: scoringProject, version, hasReal } = getCurrentVersion();
+  const scores = hasReal
+    ? version.categoryScores
+    : ((window.DEMO_CATEGORY_SCORES || {})[scoringProject?.id] || version?.categoryScores || {});
   const overallScore = hasReal ? version.overallScore : (version ? version.overallScore : 71);
 
   const categories = [
