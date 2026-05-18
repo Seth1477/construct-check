@@ -557,7 +557,8 @@ function renderCriticalPath() {
     }).join('');
   } else {
     // Demo project fallback
-    tbody.innerHTML = DEMO_CRITICAL_PATH.map((act, i) => `
+    const _dcpArr = (typeof DEMO_CRITICAL_PATH !== 'undefined') ? (DEMO_CRITICAL_PATH[project.id] || []) : [];
+    tbody.innerHTML = _dcpArr.map((act, i) => `
       <tr class="${act.isMilestone ? 'milestone-row' : ''}">
         <td>${i + 1}</td>
         <td><code style="font-size:12px;background:#f1f5f9;padding:2px 6px;border-radius:4px;">${act.id || 'A' + (1000 + i)}</code></td>
