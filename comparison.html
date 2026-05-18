@@ -1529,6 +1529,7 @@ function exportComparison() {
     <span>Generated ${genDate}</span>
   </div>
   <script>window.onload = function(){ window.print(); };<\/script>
+<script src="js/feedback-widget.js"></script>
 </body>
 </html>`);
   win.document.close();
@@ -1549,5 +1550,6 @@ function exportNarrative() {
   CC.Auth.requireAuth().then(() => CC.Auth.renderUserState());
 })();
 </script>
+<script src="js/feedback-widget.js"></script>
 </body>
 </html>
