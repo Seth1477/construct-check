@@ -527,6 +527,7 @@ const App = {
     const urlProjectId = this.getQueryParam('projectId');
     const projectId = urlProjectId
       || this._loadCurrentProjectId()
+      || this.projects.find(p => !p.isDemo)?.id
       || this.projects[0]?.id;
 
     let project = projectId ? this.projects.find(p => p.id === projectId) : null;
@@ -549,7 +550,7 @@ const App = {
       } catch(e) {}
     }
 
-    if (!project) project = this.projects[0] || null;
+    if (!project) project = this.projects.find(p => !p.isDemo) || this.projects[0] || null;
     if (project) this._saveCurrentProjectId(project.id);
     return project;
   },

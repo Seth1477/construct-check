@@ -288,7 +288,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
   // Sort versions by data date ascending (oldest first = baseline, newest last = current)
   _compVersions = (App.scheduleVersions || [])
-    .filter(v => _compProject && v.projectId === _compProject.id)
+    .filter(v => _compProject && v.projectId === _compProject.id && (!v.isDemo || !!_compProject.isDemo))
     .sort((a, b) => parseCompDate(a.dataDate) - parseCompDate(b.dataDate));
 
   const baselineSelect = document.getElementById('baselineSelect');
@@ -476,8 +476,8 @@ function renderMilestoneChanges() {
     isCritical:     m.isCritical
   }));
 
-  const m1 = _v1?.milestones || (_v1?.isDemo ? _demoMilestones(_v1, true)  : []);
-  const m2 = _v2?.milestones || (_v2?.isDemo ? _demoMilestones(_v2, false) : []);
+  const m1 = _v1?.milestones || _v1?.parsedData?.milestones || (_v1?.isDemo ? _demoMilestones(_v1, true)  : []);
+  const m2 = _v2?.milestones || _v2?.parsedData?.milestones || (_v2?.isDemo ? _demoMilestones(_v2, false) : []);
   const badge = document.getElementById('milestoneSlippedBadge');
   const hideCompleted = document.getElementById('hideCompletedMilestones')?.checked !== false;
 
