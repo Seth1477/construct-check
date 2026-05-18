@@ -665,11 +665,14 @@ function resetFilters() {
 function renderScoreSummary(version) {
   const el = document.getElementById('scoreSummarySection');
   if (!el) return;
-  if (!version?.overallScore && !version?.categoryScores) { el.style.display = 'none'; return; }
+  // categoryScores may be top-level (real uploads) or nested under analysisResults (demo versions)
+  const _cats = version.categoryScores || version.analysisResults?.categoryScores || {};
+  const _overallScore = version.overallScore ?? version.analysisResults?.overallScore;
+  if (!_overallScore && Object.keys(_cats).length === 0) { el.style.display = 'none'; return; }
 
   el.style.display = '';
 
-  const overall  = version.overallScore ?? '—';
+  const overall  = _overallScore ?? '—';
   const ragColor = typeof overall === 'number' ? (overall >= 85 ? '#16a34a' : overall >= 70 ? '#d97706' : '#dc2626') : '#64748b';
   const ragLabel = typeof overall === 'number' ? (overall >= 85 ? 'Good' : overall >= 70 ? 'Moderate' : 'At Risk') : '—';
 
@@ -679,7 +682,7 @@ function renderScoreSummary(version) {
     constraintsFloat: 'Constraints & Float', activityHygiene: 'Activity Hygiene',
     progressRealism: 'Progress Realism', criticalPathReliability: 'Critical Path'
   };
-  const cats = version.categoryScores || {};
+  const cats = _cats;
 
   const catCards = catOrder.map(key => {
     const cat = cats[key]; if (!cat) return '';
