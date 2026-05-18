@@ -280,10 +280,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     App._injectProjectIdIntoLinks(_compProject);
   }
 
-  const parseCompDate = s => s ? new Date(String(s).replace(' ', 'T')) : new Date(0);
-  // Sort versions by data date ascending
+  const parseCompDate = s => {
+    if (!s) return new Date(0);
+    if (typeof s === 'number') return new Date(s);
+    const d = new Date(String(s).replace(' ', 'T'));
+    return isNaN(d.getTime()) ? new Date(0) : d;
+  };
+  // Sort versions by data date ascending (oldest first = baseline, newest last = current)
   _compVersions = (App.scheduleVersions || [])
-    .filter(v => _compProject && v.projectId === _compProject.id && (v.isReal || v.isDemo))
+    .filter(v => _compProject && v.projectId === _compProject.id)
     .sort((a, b) => parseCompDate(a.dataDate) - parseCompDate(b.dataDate));
 
   const baselineSelect = document.getElementById('baselineSelect');
@@ -560,7 +565,7 @@ function renderMilestoneChanges() {
       : r.isNew        ? '<span class="badge badge-info">New</span>'
       : r.hasActual    ? '<span class="badge badge-success">Complete</span>'
       : v > 0          ? '<span class="badge badge-critical">Slipped</span>'
-      : v < 0          ? '<span class="badge badge-low">Recovered</span>'
+      : v < 0          ? '<span class="badge badge-low">Ahead</span>'
       :                  '<span class="badge badge-medium">No Change</span>';
   };
 
@@ -573,7 +578,7 @@ function renderMilestoneChanges() {
       <td style="padding-left:${pLeft}px;font-size:13px;"><span style="color:#94a3b8;margin-right:6px;font-size:10px;">◆</span>${r.name}</td>
       <td style="color:#94a3b8;">${App.formatDate(r.prevDate) || '—'}</td>
       <td style="color:#1e1b4b;font-weight:500;">${App.formatDate(r.curDate) || '—'}</td>
-      <td class="${varClass}">${r.variance !== null ? (r.variance > 0 ? '+' : '') + r.variance + 'd' : '—'}</td>
+      <td class="${varClass}">${r.variance !== null ? (r.variance > 0 ? '+' : r.variance < 0 ? '' : '') + r.variance + 'd' : '—'}</td>
       <td>${statusLabel(r)}</td>
     </tr>`);
   };
@@ -626,7 +631,7 @@ function renderMilestoneChanges() {
         <td style="font-size:13px;"><span style="color:#94a3b8;margin-right:6px;font-size:10px;">◆</span>${r.name}</td>
         <td style="color:#94a3b8;">${App.formatDate(r.prevDate) || '—'}</td>
         <td style="color:#1e1b4b;font-weight:500;">${App.formatDate(r.curDate) || '—'}</td>
-        <td class="${varClass}">${r.variance !== null ? (r.variance > 0 ? '+' : '') + r.variance + 'd' : '—'}</td>
+        <td class="${varClass}">${r.variance !== null ? (r.variance > 0 ? '+' : r.variance < 0 ? '' : '') + r.variance + 'd' : '—'}</td>
         <td>${statusLabel(r)}</td>
       </tr>`);
     });
@@ -1181,10 +1186,10 @@ async function exportMilestonesXlsx(mode) {
   ws.getRow(2).height = 20;
 
   const nSlipped   = _msAllChanges.filter(r => !r.isRemoved && !r.isNew && (r.variance||0) > 0 && !r.hasActual).length;
-  const nRecovered = _msAllChanges.filter(r => !r.isRemoved && !r.isNew && (r.variance||0) < 0).length;
+  const nAhead = _msAllChanges.filter(r => !r.isRemoved && !r.isNew && (r.variance||0) < 0).length;
   ws.mergeCells('A3:H3');
   Object.assign(ws.getCell('A3'), {
-    value: `Total milestone changes: ${_msAllChanges.length}   (${nSlipped} slipped · ${nRecovered} recovered)${mode==='view' ? `   |   Filtered export: ${changes.length} rows` : ''}`,
+    value: `Total milestone changes: ${_msAllChanges.length}   (${nSlipped} slipped · ${nAhead} ahead)${mode==='view' ? `   |   Filtered export: ${changes.length} rows` : ''}`,
     font:  { size: 9, italic: true, color: { argb: GREY } },
     alignment: { horizontal: 'left', vertical: 'middle', indent: 1 }
   });
@@ -1213,7 +1218,7 @@ async function exportMilestonesXlsx(mode) {
   const STATUS_LABEL = r => {
     const v = r.variance || 0;
     return r.isRemoved ? 'Removed' : r.isNew ? 'New' : r.hasActual ? 'Complete'
-      : v > 0 ? 'Slipped' : v < 0 ? 'Recovered' : 'No Change';
+      : v > 0 ? 'Slipped' : v < 0 ? 'Ahead' : 'No Change';
   };
   const ALT_FILL   = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF8F7FD' } };
   const NONE_FILL  = { type:'pattern', pattern:'none' };
