@@ -1006,8 +1006,8 @@ const App = {
 
   // ─── Comparison ──────────────────────────────────────────────
   renderComparison() {
-    const comp = (DEMO_COMPARISON[project?.id] || DEMO_COMPARISON['proj-001']);
     const project = this._resolveCurrentProject();
+    const comp = (DEMO_COMPARISON[project?.id] || DEMO_COMPARISON['proj-004']);
 
     if (project) {
       this._injectProjectIdIntoLinks(project);

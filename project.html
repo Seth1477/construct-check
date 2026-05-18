@@ -821,12 +821,11 @@ function renderTrendChart() {
   const { project } = getCurrentVersion();
   if (!project) return;
 
-  const isDemoProject = ['proj-001', 'proj-002', 'proj-003', 'proj-004'].includes(project.id);
-
   const parseD = s => s ? new Date(String(s).replace(' ', 'T')) : new Date(0);
-  // Gather real uploaded version scores for this project, sorted by data date
+
+  // Gather real uploaded version scores (isReal=true, not demo versions)
   const realVersions = (App.scheduleVersions || [])
-    .filter(v => v.projectId === project.id && v.isReal)
+    .filter(v => v.projectId === project.id && v.isReal && !v.isDemo)
     .sort((a, b) => parseD(a.dataDate) - parseD(b.dataDate));
   const realPoints = realVersions.map(v => ({
     version: v.version,
@@ -834,15 +833,11 @@ function renderTrendChart() {
     dataDate: v.dataDate
   }));
 
-  let chartData;
-  if (isDemoProject) {
-    // Demo projects: show demo history + any real uploads
-    const demoHistory = ((window.DEMO_SCORE_HISTORY || {})[project.id] || (window.DEMO_SCORE_HISTORY || {})['proj-001'] || []);
-    chartData = [...demoHistory, ...realPoints];
-  } else {
-    // Real projects: show ONLY their real uploads
-    chartData = realPoints;
-  }
+  // If this project has demo history, use it; otherwise use real uploads only
+  const demoHistory = ((window.DEMO_SCORE_HISTORY || {})[project.id] || []);
+  const chartData = demoHistory.length > 0
+    ? [...demoHistory, ...realPoints]   // demo project: demo history + any real uploads
+    : realPoints;                        // real project: real uploads only
 
   // Update the trend badge based on direction
   const trendBadge = document.querySelector('.card-badge');
@@ -879,6 +874,10 @@ function renderTrendChart() {
   const data = chartData.map(h => h.overallScore);
   const colors = data.map(s => s >= 85 ? '#22c55e' : s >= 70 ? '#f59e0b' : '#ef4444');
   const minScore = Math.max(0, Math.min(...data) - 10);
+
+  // Destroy any existing chart on this canvas before re-creating
+  const existingChart = Chart.getChart(canvas);
+  if (existingChart) existingChart.destroy();
 
   new Chart(canvas, {
     type: 'line',

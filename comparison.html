@@ -283,7 +283,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const parseCompDate = s => s ? new Date(String(s).replace(' ', 'T')) : new Date(0);
   // Sort versions by data date ascending
   _compVersions = (App.scheduleVersions || [])
-    .filter(v => _compProject && v.projectId === _compProject.id && v.isReal)
+    .filter(v => _compProject && v.projectId === _compProject.id && (v.isReal || v.isDemo))
     .sort((a, b) => parseCompDate(a.dataDate) - parseCompDate(b.dataDate));
 
   const baselineSelect = document.getElementById('baselineSelect');
