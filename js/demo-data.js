@@ -184,6 +184,18 @@ function _mkRule(ruleKey, count, totalActivities, pct, penalty, severity, passFa
 }
 
 // ─────────────────────────────────────────────────────────────
+// WBS HIERARCHY  — Batman's Batcave Expansion
+// ─────────────────────────────────────────────────────────────
+const BATCAVE_WBS = [
+  { id:'wbs-root',     parentId:null,           name:"Batman's Batcave Expansion"    },
+  { id:'wbs-proj',     parentId:'wbs-root',     name:'Project Milestones'            },
+  { id:'wbs-constr',   parentId:'wbs-proj',     name:'Construction Milestones'       },
+  { id:'wbs-contract', parentId:'wbs-proj',     name:'Contract Key Dates'            },
+  { id:'wbs-wayne',    parentId:'wbs-root',     name:'Wayne Enterprises Systems'     },
+  { id:'wbs-tech',     parentId:'wbs-wayne',    name:'Technology & Commissioning'    }
+];
+
+// ─────────────────────────────────────────────────────────────
 // SCHEDULE VERSIONS  (isDemo:true + isReal:true so comparison works)
 // ─────────────────────────────────────────────────────────────
 const DEMO_SCHEDULE_VERSIONS = [
@@ -219,13 +231,13 @@ const DEMO_SCHEDULE_VERSIONS = [
       _mkRule('INVALID_FORECAST_DATES',   0, actCount, 0.0,  0, 'low',    true,  'dateIntegrity'),
     ];
     const milestones = [
-      { id:'ms1_1', name:'Cave System Levels 1–3 Structural Complete', plannedDate:'2024-10-01', earlyFinish:'2024-10-01', actualDate:null, status:'on_track', isCritical:true,  variance:0 },
-      { id:'ms1_2', name:'Structural Reinforcement & Shotcrete Complete', plannedDate:'2025-01-15', earlyFinish:'2025-01-15', actualDate:null, status:'on_track', isCritical:true,  variance:0 },
-      { id:'ms1_3', name:'Primary Power Grid Online',           plannedDate:'2025-06-30', earlyFinish:'2025-06-30', actualDate:null, status:'on_track', isCritical:true,  variance:0 },
-      { id:'ms1_4', name:'Batmobile Vault Operational',         plannedDate:'2025-09-30', earlyFinish:'2025-09-30', actualDate:null, status:'on_track', isCritical:true,  variance:0 },
-      { id:'ms1_5', name:'Computer Core Installation Complete', plannedDate:'2025-10-31', earlyFinish:'2025-10-31', actualDate:null, status:'on_track', isCritical:true,  variance:0 },
-      { id:'ms1_6', name:'Medical Bay Operational',             plannedDate:'2026-02-28', earlyFinish:'2026-02-28', actualDate:null, status:'on_track', isCritical:false, variance:0 },
-      { id:'ms1_7', name:'Substantial Completion',              plannedDate:'2026-10-31', earlyFinish:'2026-10-31', actualDate:null, status:'on_track', isCritical:true,  variance:0 }
+      { id:'ms1_1', name:'Cave System Levels 1–3 Structural Complete', plannedDate:'2024-10-01', earlyFinish:'2024-10-01', actualDate:null, status:'on_track', isCritical:true,  variance:0, wbsId:'wbs-constr'   },
+      { id:'ms1_2', name:'Structural Reinforcement & Shotcrete Complete', plannedDate:'2025-01-15', earlyFinish:'2025-01-15', actualDate:null, status:'on_track', isCritical:true,  variance:0, wbsId:'wbs-constr'   },
+      { id:'ms1_3', name:'Primary Power Grid Online',           plannedDate:'2025-06-30', earlyFinish:'2025-06-30', actualDate:null, status:'on_track', isCritical:true,  variance:0, wbsId:'wbs-contract' },
+      { id:'ms1_4', name:'Batmobile Vault Operational',         plannedDate:'2025-09-30', earlyFinish:'2025-09-30', actualDate:null, status:'on_track', isCritical:true,  variance:0, wbsId:'wbs-contract' },
+      { id:'ms1_5', name:'Computer Core Installation Complete', plannedDate:'2025-10-31', earlyFinish:'2025-10-31', actualDate:null, status:'on_track', isCritical:true,  variance:0, wbsId:'wbs-contract' },
+      { id:'ms1_6', name:'Medical Bay Operational',             plannedDate:'2026-02-28', earlyFinish:'2026-02-28', actualDate:null, status:'on_track', isCritical:false, variance:0, wbsId:'wbs-tech'     },
+      { id:'ms1_7', name:'Substantial Completion',              plannedDate:'2026-10-31', earlyFinish:'2026-10-31', actualDate:null, status:'on_track', isCritical:true,  variance:0, wbsId:'wbs-contract' }
     ];
     return {
       id:'vb1', projectId:'proj-004', isDemo:true, isReal:true,
@@ -242,6 +254,7 @@ const DEMO_SCHEDULE_VERSIONS = [
         milestoneCount:msCount, dataDate:'2024-05-01'
       },
       activityLookup:_mkActs('vb1',[35,42,28,51,67,33,41,19,45,38,29,55,71,22,48,36,44,30,58,47,62,25,39,53,31,64,43,56,77,28,41,35,60,48,23,37,52,44,33,68,21,47,56,39,29,43,71,25,38,55,19,46,32,61,44,37,50,27,43,34]),
+      wbsLookup: BATCAVE_WBS,
       milestones
     };
   })(),
@@ -276,13 +289,13 @@ const DEMO_SCHEDULE_VERSIONS = [
       _mkRule('CRITICAL_RATIO',           0, actCount, 0.0,  0, 'low',      true,  'criticalPathReliability'),
     ];
     const milestones = [
-      { id:'ms2_1', name:'Cave System Levels 1–3 Structural Complete', plannedDate:'2024-10-01', earlyFinish:'2024-10-04', actualDate:null, status:'on_track', isCritical:true,  variance:3 },
-      { id:'ms2_2', name:'Structural Reinforcement & Shotcrete Complete', plannedDate:'2025-01-15', earlyFinish:'2025-01-17', actualDate:null, status:'on_track', isCritical:true,  variance:2 },
-      { id:'ms2_3', name:'Primary Power Grid Online',           plannedDate:'2025-06-30', earlyFinish:'2025-07-08', actualDate:null, status:'on_track', isCritical:true,  variance:8 },
-      { id:'ms2_4', name:'Batmobile Vault Operational',         plannedDate:'2025-09-30', earlyFinish:'2025-10-07', actualDate:null, status:'on_track', isCritical:true,  variance:7 },
-      { id:'ms2_5', name:'Computer Core Installation Complete', plannedDate:'2025-10-31', earlyFinish:'2025-11-07', actualDate:null, status:'on_track', isCritical:true,  variance:7 },
-      { id:'ms2_6', name:'Medical Bay Operational',             plannedDate:'2026-02-28', earlyFinish:'2026-03-04', actualDate:null, status:'on_track', isCritical:false, variance:4 },
-      { id:'ms2_7', name:'Substantial Completion',              plannedDate:'2026-10-31', earlyFinish:'2026-11-08', actualDate:null, status:'on_track', isCritical:true,  variance:8 }
+      { id:'ms2_1', name:'Cave System Levels 1–3 Structural Complete', plannedDate:'2024-10-01', earlyFinish:'2024-10-04', actualDate:null, status:'on_track', isCritical:true,  variance:3, wbsId:'wbs-constr'   },
+      { id:'ms2_2', name:'Structural Reinforcement & Shotcrete Complete', plannedDate:'2025-01-15', earlyFinish:'2025-01-17', actualDate:null, status:'on_track', isCritical:true,  variance:2, wbsId:'wbs-constr'   },
+      { id:'ms2_3', name:'Primary Power Grid Online',           plannedDate:'2025-06-30', earlyFinish:'2025-07-08', actualDate:null, status:'on_track', isCritical:true,  variance:8, wbsId:'wbs-contract' },
+      { id:'ms2_4', name:'Batmobile Vault Operational',         plannedDate:'2025-09-30', earlyFinish:'2025-10-07', actualDate:null, status:'on_track', isCritical:true,  variance:7, wbsId:'wbs-contract' },
+      { id:'ms2_5', name:'Computer Core Installation Complete', plannedDate:'2025-10-31', earlyFinish:'2025-11-07', actualDate:null, status:'on_track', isCritical:true,  variance:7, wbsId:'wbs-contract' },
+      { id:'ms2_6', name:'Medical Bay Operational',             plannedDate:'2026-02-28', earlyFinish:'2026-03-04', actualDate:null, status:'on_track', isCritical:false, variance:4, wbsId:'wbs-tech'     },
+      { id:'ms2_7', name:'Substantial Completion',              plannedDate:'2026-10-31', earlyFinish:'2026-11-08', actualDate:null, status:'on_track', isCritical:true,  variance:8, wbsId:'wbs-contract' }
     ];
     return {
       id:'vb2', projectId:'proj-004', isDemo:true, isReal:true,
@@ -299,6 +312,7 @@ const DEMO_SCHEDULE_VERSIONS = [
         milestoneCount:msCount, dataDate:'2024-08-01'
       },
       activityLookup:_mkActs('vb2',[31,38,24,47,63,29,37,16,41,34,25,51,67,18,44,32,40,26,54,43,59,21,35,49,27,60,39,52,73,24,37,31,56,44,19,33,48,40,29,64,17,43,52,35,25,39,67,21,34,51,15,42,28,57,40,33,46,23,39,30]),
+      wbsLookup: BATCAVE_WBS,
       milestones
     };
   })(),
@@ -333,13 +347,13 @@ const DEMO_SCHEDULE_VERSIONS = [
       _mkRule('CRITICAL_RATIO',           0, actCount, 0.0,  0, 'low',      true,  'criticalPathReliability'),
     ];
     const milestones = [
-      { id:'ms3_1', name:'Cave System Levels 1–3 Structural Complete', plannedDate:'2024-10-01', earlyFinish:'2024-10-03', actualDate:'2024-10-03', status:'complete',  isCritical:true,  variance:2  },
-      { id:'ms3_2', name:'Structural Reinforcement & Shotcrete Complete', plannedDate:'2025-01-15', earlyFinish:'2025-01-21', actualDate:null, status:'on_track', isCritical:true,  variance:6  },
-      { id:'ms3_3', name:'Primary Power Grid Online',           plannedDate:'2025-06-30', earlyFinish:'2025-07-24', actualDate:null, status:'slipping',  isCritical:true,  variance:24 },
-      { id:'ms3_4', name:'Batmobile Vault Operational',         plannedDate:'2025-09-30', earlyFinish:'2025-10-22', actualDate:null, status:'slipping',  isCritical:true,  variance:22 },
-      { id:'ms3_5', name:'Computer Core Installation Complete', plannedDate:'2025-10-31', earlyFinish:'2025-11-25', actualDate:null, status:'slipping',  isCritical:true,  variance:25 },
-      { id:'ms3_6', name:'Medical Bay Operational',             plannedDate:'2026-02-28', earlyFinish:'2026-03-10', actualDate:null, status:'on_track',  isCritical:false, variance:10 },
-      { id:'ms3_7', name:'Substantial Completion',              plannedDate:'2026-10-31', earlyFinish:'2026-11-25', actualDate:null, status:'slipping',  isCritical:true,  variance:25 }
+      { id:'ms3_1', name:'Cave System Levels 1–3 Structural Complete', plannedDate:'2024-10-01', earlyFinish:'2024-10-03', actualDate:'2024-10-03', status:'complete',  isCritical:true,  variance:2,  wbsId:'wbs-constr'   },
+      { id:'ms3_2', name:'Structural Reinforcement & Shotcrete Complete', plannedDate:'2025-01-15', earlyFinish:'2025-01-21', actualDate:null, status:'on_track', isCritical:true,  variance:6,  wbsId:'wbs-constr'   },
+      { id:'ms3_3', name:'Primary Power Grid Online',           plannedDate:'2025-06-30', earlyFinish:'2025-07-24', actualDate:null, status:'slipping',  isCritical:true,  variance:24, wbsId:'wbs-contract' },
+      { id:'ms3_4', name:'Batmobile Vault Operational',         plannedDate:'2025-09-30', earlyFinish:'2025-10-22', actualDate:null, status:'slipping',  isCritical:true,  variance:22, wbsId:'wbs-contract' },
+      { id:'ms3_5', name:'Computer Core Installation Complete', plannedDate:'2025-10-31', earlyFinish:'2025-11-25', actualDate:null, status:'slipping',  isCritical:true,  variance:25, wbsId:'wbs-contract' },
+      { id:'ms3_6', name:'Medical Bay Operational',             plannedDate:'2026-02-28', earlyFinish:'2026-03-10', actualDate:null, status:'on_track',  isCritical:false, variance:10, wbsId:'wbs-tech'     },
+      { id:'ms3_7', name:'Substantial Completion',              plannedDate:'2026-10-31', earlyFinish:'2026-11-25', actualDate:null, status:'slipping',  isCritical:true,  variance:25, wbsId:'wbs-contract' }
     ];
     return {
       id:'vb3', projectId:'proj-004', isDemo:true, isReal:true,
@@ -356,6 +370,7 @@ const DEMO_SCHEDULE_VERSIONS = [
         milestoneCount:msCount, dataDate:'2024-11-01'
       },
       activityLookup:_mkActs('vb3',[22,30,17,41,56,23,31,10,35,27,19,45,60,13,38,25,33,19,48,36,52,15,28,43,21,54,32,46,67,18,30,24,49,37,13,27,41,33,22,57,11,36,45,28,18,32,60,14,27,44,9,35,21,50,33,26,39,17,32,23]),
+      wbsLookup: BATCAVE_WBS,
       milestones
     };
   })(),
@@ -390,13 +405,13 @@ const DEMO_SCHEDULE_VERSIONS = [
       _mkRule('CRITICAL_RATIO',           0, actCount, 0.0,  0, 'low',      true,  'criticalPathReliability'),
     ];
     const milestones = [
-      { id:'ms4_1', name:'Cave System Levels 1–3 Structural Complete', plannedDate:'2024-10-01', earlyFinish:'2024-10-03', actualDate:'2024-10-03', status:'complete',  isCritical:true,  variance:2  },
-      { id:'ms4_2', name:'Structural Reinforcement & Shotcrete Complete', plannedDate:'2025-01-15', earlyFinish:'2025-01-22', actualDate:'2025-01-22', status:'complete',  isCritical:true,  variance:7  },
-      { id:'ms4_3', name:'Primary Power Grid Online',           plannedDate:'2025-06-30', earlyFinish:'2025-08-15', actualDate:null, status:'slipping',  isCritical:true,  variance:46 },
-      { id:'ms4_4', name:'Batmobile Vault Operational',         plannedDate:'2025-09-30', earlyFinish:'2025-11-05', actualDate:null, status:'slipping',  isCritical:true,  variance:36 },
-      { id:'ms4_5', name:'Computer Core Installation Complete', plannedDate:'2025-10-31', earlyFinish:'2025-12-09', actualDate:null, status:'slipping',  isCritical:true,  variance:39 },
-      { id:'ms4_6', name:'Medical Bay Operational',             plannedDate:'2026-02-28', earlyFinish:'2026-03-19', actualDate:null, status:'on_track',  isCritical:false, variance:19 },
-      { id:'ms4_7', name:'Substantial Completion',              plannedDate:'2026-10-31', earlyFinish:'2026-12-24', actualDate:null, status:'slipping',  isCritical:true,  variance:54 }
+      { id:'ms4_1', name:'Cave System Levels 1–3 Structural Complete', plannedDate:'2024-10-01', earlyFinish:'2024-10-03', actualDate:'2024-10-03', status:'complete',  isCritical:true,  variance:2,  wbsId:'wbs-constr'   },
+      { id:'ms4_2', name:'Structural Reinforcement & Shotcrete Complete', plannedDate:'2025-01-15', earlyFinish:'2025-01-22', actualDate:'2025-01-22', status:'complete',  isCritical:true,  variance:7,  wbsId:'wbs-constr'   },
+      { id:'ms4_3', name:'Primary Power Grid Online',           plannedDate:'2025-06-30', earlyFinish:'2025-08-15', actualDate:null, status:'slipping',  isCritical:true,  variance:46, wbsId:'wbs-contract' },
+      { id:'ms4_4', name:'Batmobile Vault Operational',         plannedDate:'2025-09-30', earlyFinish:'2025-11-05', actualDate:null, status:'slipping',  isCritical:true,  variance:36, wbsId:'wbs-contract' },
+      { id:'ms4_5', name:'Computer Core Installation Complete', plannedDate:'2025-10-31', earlyFinish:'2025-12-09', actualDate:null, status:'slipping',  isCritical:true,  variance:39, wbsId:'wbs-contract' },
+      { id:'ms4_6', name:'Medical Bay Operational',             plannedDate:'2026-02-28', earlyFinish:'2026-03-19', actualDate:null, status:'on_track',  isCritical:false, variance:19, wbsId:'wbs-tech'     },
+      { id:'ms4_7', name:'Substantial Completion',              plannedDate:'2026-10-31', earlyFinish:'2026-12-24', actualDate:null, status:'slipping',  isCritical:true,  variance:54, wbsId:'wbs-contract' }
     ];
     return {
       id:'vb4', projectId:'proj-004', isDemo:true, isReal:true,
@@ -413,6 +428,7 @@ const DEMO_SCHEDULE_VERSIONS = [
         milestoneCount:msCount, dataDate:'2025-02-01'
       },
       activityLookup:_mkActs('vb4',[3,7,1,12,5,18,8,22,2,6,9,16,1,4,8,21,25,30,17,11,13,34,19,38,23,16,10,26,31,43,8,14,5,24,20,11,33,27,15,19,7,30,42,17,9,23,38,13,26,21,8,35,18,44,31,14,25,10,20,16]),
+      wbsLookup: BATCAVE_WBS,
       milestones
     };
   })(),
@@ -447,13 +463,13 @@ const DEMO_SCHEDULE_VERSIONS = [
       _mkRule('CRITICAL_RATIO',           0, actCount, 0.0,  0, 'low',      true,  'criticalPathReliability'),
     ];
     const milestones = [
-      { id:'ms5_1', name:'Cave System Levels 1–3 Structural Complete', plannedDate:'2024-10-01', earlyFinish:'2024-10-03', actualDate:'2024-10-03', status:'complete',  isCritical:true,  variance:2   },
-      { id:'ms5_2', name:'Structural Reinforcement & Shotcrete Complete', plannedDate:'2025-01-15', earlyFinish:'2025-01-22', actualDate:'2025-01-22', status:'complete',  isCritical:true,  variance:7   },
-      { id:'ms5_3', name:'Primary Power Grid Online',           plannedDate:'2025-06-30', earlyFinish:'2025-08-21', actualDate:null, status:'slipping',  isCritical:true,  variance:52  },
-      { id:'ms5_4', name:'Batmobile Vault Operational',         plannedDate:'2025-09-30', earlyFinish:'2025-12-08', actualDate:null, status:'slipping',  isCritical:true,  variance:69  },
-      { id:'ms5_5', name:'Computer Core Installation Complete', plannedDate:'2025-10-31', earlyFinish:'2025-12-17', actualDate:null, status:'slipping',  isCritical:true,  variance:47  },
-      { id:'ms5_6', name:'Medical Bay Operational',             plannedDate:'2026-02-28', earlyFinish:'2026-04-02', actualDate:null, status:'at_risk',   isCritical:false, variance:33  },
-      { id:'ms5_7', name:'Substantial Completion',              plannedDate:'2026-10-31', earlyFinish:'2027-02-10', actualDate:null, status:'slipping',  isCritical:true,  variance:102 }
+      { id:'ms5_1', name:'Cave System Levels 1–3 Structural Complete', plannedDate:'2024-10-01', earlyFinish:'2024-10-03', actualDate:'2024-10-03', status:'complete',  isCritical:true,  variance:2,   wbsId:'wbs-constr'   },
+      { id:'ms5_2', name:'Structural Reinforcement & Shotcrete Complete', plannedDate:'2025-01-15', earlyFinish:'2025-01-22', actualDate:'2025-01-22', status:'complete',  isCritical:true,  variance:7,   wbsId:'wbs-constr'   },
+      { id:'ms5_3', name:'Primary Power Grid Online',           plannedDate:'2025-06-30', earlyFinish:'2025-08-21', actualDate:null, status:'slipping',  isCritical:true,  variance:52,  wbsId:'wbs-contract' },
+      { id:'ms5_4', name:'Batmobile Vault Operational',         plannedDate:'2025-09-30', earlyFinish:'2025-12-08', actualDate:null, status:'slipping',  isCritical:true,  variance:69,  wbsId:'wbs-contract' },
+      { id:'ms5_5', name:'Computer Core Installation Complete', plannedDate:'2025-10-31', earlyFinish:'2025-12-17', actualDate:null, status:'slipping',  isCritical:true,  variance:47,  wbsId:'wbs-contract' },
+      { id:'ms5_6', name:'Medical Bay Operational',             plannedDate:'2026-02-28', earlyFinish:'2026-04-02', actualDate:null, status:'at_risk',   isCritical:false, variance:33,  wbsId:'wbs-tech'     },
+      { id:'ms5_7', name:'Substantial Completion',              plannedDate:'2026-10-31', earlyFinish:'2027-02-10', actualDate:null, status:'slipping',  isCritical:true,  variance:102, wbsId:'wbs-contract' }
     ];
     return {
       id:'vb5', projectId:'proj-004', isDemo:true, isReal:true,
@@ -470,6 +486,7 @@ const DEMO_SCHEDULE_VERSIONS = [
         milestoneCount:msCount, dataDate:'2025-05-01'
       },
       activityLookup:_mkActs('vb5',[-8,-5,-12,-3,-7,-1,-9,-4,-6,-11,-2,0,1,-3,-6,0,-1,2,3,4,5,3,6,7,4,2,8,5,3,6,1,0,-1,7,5,3,2,1,0,10,13,16,9,12,14,7,11,8,15,18,22,19,15,21,16,18,20,13,11,-2]),
+      wbsLookup: BATCAVE_WBS,
       milestones
     };
   })(),
@@ -504,13 +521,13 @@ const DEMO_SCHEDULE_VERSIONS = [
       _mkRule('CRITICAL_RATIO',           0, actCount, 0.0,  0, 'low',      true,  'criticalPathReliability'),
     ];
     const milestones = [
-      { id:'ms6_1', name:'Cave System Levels 1–3 Structural Complete', plannedDate:'2024-10-01', earlyFinish:'2024-10-03', actualDate:'2024-10-03', status:'complete',  isCritical:true,  variance:2  },
-      { id:'ms6_2', name:'Structural Reinforcement & Shotcrete Complete', plannedDate:'2025-01-15', earlyFinish:'2025-01-22', actualDate:'2025-01-22', status:'complete',  isCritical:true,  variance:7  },
-      { id:'ms6_3', name:'Primary Power Grid Online',           plannedDate:'2025-06-30', earlyFinish:'2025-09-15', actualDate:null, status:'slipping',  isCritical:true,  variance:77 },
-      { id:'ms6_4', name:'Batmobile Vault Operational',         plannedDate:'2025-09-30', earlyFinish:'2025-11-20', actualDate:null, status:'slipping',  isCritical:true,  variance:51 },
-      { id:'ms6_5', name:'Computer Core Installation Complete', plannedDate:'2025-10-31', earlyFinish:'2025-12-03', actualDate:null, status:'slipping',  isCritical:true,  variance:33 },
-      { id:'ms6_6', name:'Medical Bay Operational',             plannedDate:'2026-02-28', earlyFinish:'2026-03-07', actualDate:null, status:'on_track',  isCritical:false, variance:7  },
-      { id:'ms6_7', name:'Substantial Completion',              plannedDate:'2026-10-31', earlyFinish:'2027-01-27', actualDate:null, status:'slipping',  isCritical:true,  variance:88 }
+      { id:'ms6_1', name:'Cave System Levels 1–3 Structural Complete', plannedDate:'2024-10-01', earlyFinish:'2024-10-03', actualDate:'2024-10-03', status:'complete',  isCritical:true,  variance:2,  wbsId:'wbs-constr'   },
+      { id:'ms6_2', name:'Structural Reinforcement & Shotcrete Complete', plannedDate:'2025-01-15', earlyFinish:'2025-01-22', actualDate:'2025-01-22', status:'complete',  isCritical:true,  variance:7,  wbsId:'wbs-constr'   },
+      { id:'ms6_3', name:'Primary Power Grid Online',           plannedDate:'2025-06-30', earlyFinish:'2025-09-15', actualDate:null, status:'slipping',  isCritical:true,  variance:77, wbsId:'wbs-contract' },
+      { id:'ms6_4', name:'Batmobile Vault Operational',         plannedDate:'2025-09-30', earlyFinish:'2025-11-20', actualDate:null, status:'slipping',  isCritical:true,  variance:51, wbsId:'wbs-contract' },
+      { id:'ms6_5', name:'Computer Core Installation Complete', plannedDate:'2025-10-31', earlyFinish:'2025-12-03', actualDate:null, status:'slipping',  isCritical:true,  variance:33, wbsId:'wbs-contract' },
+      { id:'ms6_6', name:'Medical Bay Operational',             plannedDate:'2026-02-28', earlyFinish:'2026-03-07', actualDate:null, status:'on_track',  isCritical:false, variance:7,  wbsId:'wbs-tech'     },
+      { id:'ms6_7', name:'Substantial Completion',              plannedDate:'2026-10-31', earlyFinish:'2027-01-27', actualDate:null, status:'slipping',  isCritical:true,  variance:88, wbsId:'wbs-contract' }
     ];
     return {
       id:'vb6', projectId:'proj-004', isDemo:true, isReal:true,
@@ -527,6 +544,7 @@ const DEMO_SCHEDULE_VERSIONS = [
         milestoneCount:msCount, dataDate:'2025-08-01'
       },
       activityLookup:_mkActs('vb6',[-3,-1,0,1,2,4,6,8,3,5,7,9,2,11,13,16,11,14,18,21,24,17,20,23,15,12,19,22,26,30,34,37,28,32,35,-1,0,2,4,5,3,7,4,6,14,17,11,21,18,25,27,31,23,16,20,28,35,39,13,8]),
+      wbsLookup: BATCAVE_WBS,
       milestones
     };
   })(),
@@ -561,13 +579,13 @@ const DEMO_SCHEDULE_VERSIONS = [
       _mkRule('CRITICAL_RATIO',           0, actCount, 0.0,  0, 'low',      true,  'criticalPathReliability'),
     ];
     const milestones = [
-      { id:'ms7_1', name:'Cave System Levels 1–3 Structural Complete', plannedDate:'2024-10-01', earlyFinish:'2024-10-03', actualDate:'2024-10-03', status:'complete',  isCritical:true,  variance:2  },
-      { id:'ms7_2', name:'Structural Reinforcement & Shotcrete Complete', plannedDate:'2025-01-15', earlyFinish:'2025-01-22', actualDate:'2025-01-22', status:'complete',  isCritical:true,  variance:7  },
-      { id:'ms7_3', name:'Primary Power Grid Online',           plannedDate:'2025-06-30', earlyFinish:'2025-08-07', actualDate:'2025-08-07', status:'complete',  isCritical:true,  variance:38 },
-      { id:'ms7_4', name:'Batmobile Vault Operational',         plannedDate:'2025-09-30', earlyFinish:'2025-11-20', actualDate:null, status:'at_risk',   isCritical:true,  variance:51 },
-      { id:'ms7_5', name:'Computer Core Installation Complete', plannedDate:'2025-10-31', earlyFinish:'2025-12-03', actualDate:null, status:'slipping',  isCritical:true,  variance:33 },
-      { id:'ms7_6', name:'Medical Bay Operational',             plannedDate:'2026-02-28', earlyFinish:'2026-03-04', actualDate:null, status:'on_track',  isCritical:false, variance:4  },
-      { id:'ms7_7', name:'Substantial Completion',              plannedDate:'2026-10-31', earlyFinish:'2027-01-11', actualDate:null, status:'slipping',  isCritical:true,  variance:72 }
+      { id:'ms7_1', name:'Cave System Levels 1–3 Structural Complete', plannedDate:'2024-10-01', earlyFinish:'2024-10-03', actualDate:'2024-10-03', status:'complete',  isCritical:true,  variance:2,  wbsId:'wbs-constr'   },
+      { id:'ms7_2', name:'Structural Reinforcement & Shotcrete Complete', plannedDate:'2025-01-15', earlyFinish:'2025-01-22', actualDate:'2025-01-22', status:'complete',  isCritical:true,  variance:7,  wbsId:'wbs-constr'   },
+      { id:'ms7_3', name:'Primary Power Grid Online',           plannedDate:'2025-06-30', earlyFinish:'2025-08-07', actualDate:'2025-08-07', status:'complete',  isCritical:true,  variance:38, wbsId:'wbs-contract' },
+      { id:'ms7_4', name:'Batmobile Vault Operational',         plannedDate:'2025-09-30', earlyFinish:'2025-11-20', actualDate:null, status:'at_risk',   isCritical:true,  variance:51, wbsId:'wbs-contract' },
+      { id:'ms7_5', name:'Computer Core Installation Complete', plannedDate:'2025-10-31', earlyFinish:'2025-12-03', actualDate:null, status:'slipping',  isCritical:true,  variance:33, wbsId:'wbs-contract' },
+      { id:'ms7_6', name:'Medical Bay Operational',             plannedDate:'2026-02-28', earlyFinish:'2026-03-04', actualDate:null, status:'on_track',  isCritical:false, variance:4,  wbsId:'wbs-tech'     },
+      { id:'ms7_7', name:'Substantial Completion',              plannedDate:'2026-10-31', earlyFinish:'2027-01-11', actualDate:null, status:'slipping',  isCritical:true,  variance:72, wbsId:'wbs-contract' }
     ];
     return {
       id:'vb7', projectId:'proj-004', isDemo:true, isReal:true,
@@ -584,6 +602,7 @@ const DEMO_SCHEDULE_VERSIONS = [
         milestoneCount:msCount, dataDate:'2025-11-01'
       },
       activityLookup:_mkActs('vb7',[-1,0,1,3,5,7,9,2,4,6,8,11,13,16,11,14,18,21,24,17,27,20,23,26,15,12,19,30,34,37,41,28,32,35,38,25,31,43,47,51,36,40,44,33,46,50,39,42,45,48,52,55,29,43,37,41,34,49,35,21]),
+      wbsLookup: BATCAVE_WBS,
       milestones
     };
   })()
