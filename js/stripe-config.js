@@ -3,10 +3,10 @@
 
 window.CC_STRIPE = {
   // Publishable key from Stripe → Developers → API Keys
-  publishableKey: 'REPLACE_WITH_STRIPE_PUBLISHABLE_KEY',
+  publishableKey: 'pk_test_51TYVYOD4YFvr63IJmlnXpxHVUnSS9rhj5fLSUzptYCyYBR5zUuwapPmY13MMejnVwvG1pgYIa89hu1HeDfGSf1Lp0090eQIQTq',
 
-  // Price ID from Stripe → Products → Construct Check Pro → Pricing
-  priceId: 'REPLACE_WITH_STRIPE_PRICE_ID',
+  // Price ID for Construct Check Pro ($20/month)
+  priceId: 'price_1TYVchD4YFvr63IJUAghp4bG',
 
   // Supabase Edge Function base URL
   functionsUrl: 'https://vlpuiguahfnuzbtjtwut.supabase.co/functions/v1',
