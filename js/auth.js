@@ -44,8 +44,9 @@
   const lsSet = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 
   // ── Usage / plan helpers ────────────────────────────────────────
-  const ADMIN_EMAILS = ['speterson1477@gmail.com'];
-  const FREE_LIMIT   = 2;
+  const ADMIN_EMAILS  = ['speterson1477@gmail.com'];
+  const TRIAL_DAYS    = 7;
+  const TRIAL_MS      = TRIAL_DAYS * 24 * 60 * 60 * 1000;
 
   function _usageFor(email) {
     const all  = lsGet(LS.USAGE) || {};
@@ -57,6 +58,23 @@
     const all = lsGet(LS.USAGE) || {};
     all[email] = data;
     lsSet(LS.USAGE, all);
+  }
+  function _trialStartFor(email) {
+    const all   = lsGet(LS.USAGE) || {};
+    const usage = all[email] || {};
+    if (!usage.trialStartAt) {
+      // Prefer Supabase account-creation timestamp; fall back to now
+      usage.trialStartAt = _session?.createdAt || Date.now();
+      all[email] = { uploads: 0, plan: 'free', ...usage };
+      lsSet(LS.USAGE, all);
+    }
+    return usage.trialStartAt;
+  }
+  function _isTrialActive(email) {
+    if (ADMIN_EMAILS.includes(email.toLowerCase())) return true;
+    const usage = _usageFor(email);
+    if (usage.plan === 'pro') return true;
+    return (Date.now() - _trialStartFor(email)) < TRIAL_MS;
   }
 
   // ── Resolve initial session ─────────────────────────────────────
@@ -207,18 +225,17 @@
       const user = this.currentUser();
       if (!user) return { allowed: false };
       const usage = _usageFor(user.email);
-      if (usage.plan === 'pro') return { allowed: true, uploadsUsed: usage.uploads + 1, limit: Infinity, isPro: true };
-      const n = usage.uploads + 1;
-      if (n > FREE_LIMIT) return { allowed: false, uploadsUsed: usage.uploads, limit: FREE_LIMIT, isPro: false };
-      usage.uploads = n;
+      usage.uploads = (usage.uploads || 0) + 1;
       _saveUsage(user.email, usage);
-      return { allowed: true, uploadsUsed: n, limit: FREE_LIMIT, isPro: false };
+      const trialActive = _isTrialActive(user.email);
+      return { allowed: true, uploadsUsed: usage.uploads, limit: Infinity, isPro: usage.plan === 'pro', trialActive };
     },
 
     getUsage() {
       const user = this.currentUser();
-      if (!user) return { uploads: 0, plan: 'free', limit: FREE_LIMIT };
-      return { ..._usageFor(user.email), limit: FREE_LIMIT };
+      if (!user) return { uploads: 0, plan: 'free', limit: Infinity, trialActive: false, daysLeft: 0 };
+      const usage = _usageFor(user.email);
+      return { ...usage, limit: Infinity, trialActive: _isTrialActive(user.email), daysLeft: this.trialDaysLeft() };
     },
 
     upgradeToPro() {
@@ -228,6 +245,34 @@
       usage.plan = 'pro';
       _saveUsage(user.email, usage);
       window.location.reload();
+    },
+
+    isPro() {
+      const user = this.currentUser();
+      if (!user) return false;
+      if (ADMIN_EMAILS.includes(user.email.toLowerCase())) return true;
+      return (_usageFor(user.email).plan === 'pro');
+    },
+
+    isTrialActive() {
+      const user = this.currentUser();
+      if (!user) return false;
+      return _isTrialActive(user.email);
+    },
+
+    isFreeRestricted() {
+      // true when trial has expired AND user hasn't upgraded to pro
+      const user = this.currentUser();
+      if (!user) return true;
+      return !this.isPro() && !this.isTrialActive();
+    },
+
+    trialDaysLeft() {
+      const user = this.currentUser();
+      if (!user) return 0;
+      if (this.isPro()) return Infinity;
+      const ms = TRIAL_MS - (Date.now() - _trialStartFor(user.email));
+      return Math.max(0, Math.ceil(ms / (24 * 60 * 60 * 1000)));
     },
 
     // ── UI helpers ──────────────────────────────────────────────
@@ -246,14 +291,18 @@
       document.querySelectorAll('[data-auth-name]').forEach(el => { el.textContent = user ? user.name : ''; });
       document.querySelectorAll('[data-auth-email]').forEach(el => { el.textContent = user ? user.email : ''; });
       document.querySelectorAll('[data-auth-plan]').forEach(el => {
-        const isAdmin = user && ADMIN_EMAILS.includes(user.email.toLowerCase());
-        const label   = isAdmin ? 'Admin ★' : (usage.plan === 'pro' ? 'Pro' : 'Free Trial');
+        const isAdmin  = user && ADMIN_EMAILS.includes(user.email.toLowerCase());
+        const daysLeft = this.trialDaysLeft();
+        const label    = isAdmin         ? 'Admin ★'
+                       : this.isPro()    ? 'Pro'
+                       : daysLeft > 0   ? `Trial — ${daysLeft}d left`
+                       :                  'Free';
         el.textContent = label;
         el.className   = (el.className || '').replace(/plan-\w+/g, '') +
-          (isAdmin || usage.plan === 'pro' ? ' plan-pro' : ' plan-free');
+          (isAdmin || this.isPro() ? ' plan-pro' : daysLeft > 0 ? ' plan-trial' : ' plan-free');
       });
       document.querySelectorAll('[data-auth-uploads]').forEach(el => {
-        el.textContent = `${usage.uploads} / ${usage.plan === 'pro' ? '∞' : usage.limit}`;
+        el.textContent = `${usage.uploads} uploaded`;
       });
 
       const sidebarUser = document.querySelector('.sidebar-bottom .sidebar-user, .sidebar-user');
@@ -465,29 +514,37 @@
   window.CC.FB_OK  = SB_OK;  // kept for backward compat
   window.CC.SB_OK  = SB_OK;
 
-  window.CC.showPaywallModal = function () {
-    const existing = document.getElementById('cc-paywall-modal');
+  window.CC.showUpgradeModal = function (featureName) {
+    const id = 'cc-upgrade-modal';
+    const existing = document.getElementById(id);
     if (existing) { existing.style.display = 'flex'; return; }
     const overlay = document.createElement('div');
-    overlay.id = 'cc-paywall-modal';
+    overlay.id = id;
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(13,11,30,0.85);display:flex;align-items:center;justify-content:center;z-index:9000;backdrop-filter:blur(4px);';
+    const featureText = featureName
+      ? `<strong>${featureName}</strong> is a Pro feature.`
+      : 'This feature requires a Pro subscription.';
     overlay.innerHTML = `
       <div style="background:#fff;border-radius:16px;padding:48px 40px;max-width:480px;width:90%;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,0.3);">
-        <div style="font-size:48px;margin-bottom:16px;">🚀</div>
-        <h2 style="font-size:24px;font-weight:800;color:#1e1b4b;margin:0 0 10px">You've used your free upload</h2>
-        <p style="color:#64748b;font-size:15px;line-height:1.6;margin:0 0 28px">Your free trial includes <strong>2 file uploads</strong>. Upgrade to <strong>Pro</strong> for unlimited uploads at <strong>$20/month</strong>.</p>
+        <div style="font-size:48px;margin-bottom:16px;">⚡</div>
+        <h2 style="font-size:24px;font-weight:800;color:#1e1b4b;margin:0 0 10px">Upgrade to Pro</h2>
+        <p style="color:#64748b;font-size:15px;line-height:1.6;margin:0 0 28px">${featureText} Your 1-week free trial has ended — upgrade to continue with full access.</p>
         <div style="background:#f8f7ff;border:2px solid #7c6fe0;border-radius:12px;padding:20px;margin-bottom:24px;">
           <div style="font-size:32px;font-weight:800;color:#5b4ec4">$20<span style="font-size:16px;font-weight:500;color:#64748b">/month</span></div>
           <ul style="text-align:left;margin:12px 0 0;padding-left:20px;color:#1e293b;font-size:14px;line-height:2;">
-            <li>Unlimited P6 file uploads</li><li>Unlimited schedule comparisons</li>
-            <li>Full DCMA+ diagnostic reports</li><li>Critical path & logic analysis</li>
+            <li>Unlimited P6 file uploads &amp; comparisons</li>
+            <li>Full data views — no row limits</li>
+            <li>Excel &amp; CSV export for all reports</li>
+            <li>Full DCMA+ diagnostics &amp; narrative reports</li>
             <li>Priority support</li>
           </ul>
         </div>
         <button onclick="window.location.href='index.html#pricing'" style="width:100%;padding:14px;background:#7c6fe0;color:#fff;font-size:16px;font-weight:700;border:none;border-radius:10px;cursor:pointer;margin-bottom:12px;">Upgrade to Pro — $20/mo</button>
-        <button onclick="document.getElementById('cc-paywall-modal').style.display='none'" style="width:100%;padding:12px;background:transparent;color:#94a3b8;font-size:14px;border:none;cursor:pointer;">Maybe later</button>
+        <button onclick="document.getElementById('${id}').style.display='none'" style="width:100%;padding:12px;background:transparent;color:#94a3b8;font-size:14px;border:none;cursor:pointer;">Maybe later</button>
       </div>`;
     document.body.appendChild(overlay);
   };
+  // Backward-compat alias
+  window.CC.showPaywallModal = function () { window.CC.showUpgradeModal(); };
 
 })();

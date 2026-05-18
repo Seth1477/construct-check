@@ -1019,6 +1019,10 @@ function toggleCatRules(catCb) {
 }
 
 async function doExcelExport() {
+  if (window.CC?.Auth?.isFreeRestricted?.()) {
+    window.CC.showUpgradeModal('Excel export');
+    return;
+  }
   const diagData = _excelDiagData;
   if (!diagData) return;
 
@@ -1207,6 +1211,10 @@ async function doExcelExport() {
 
 // ─── CSV Export ───────────────────────────────────────────────────────────────
 function exportCSV() {
+  if (window.CC?.Auth?.isFreeRestricted?.()) {
+    window.CC.showUpgradeModal('CSV export');
+    return;
+  }
   const container = document.getElementById('diagnosticsContainer');
   const cards     = container ? container.querySelectorAll('.diagnostic-card') : [];
   const rows      = [['Category','Severity','Rule','Count','% of Total','Score Impact']];

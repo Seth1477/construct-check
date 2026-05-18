@@ -523,15 +523,20 @@ function renderMilestoneChanges() {
     badge.className   = slipped > 0 ? 'badge badge-critical' : 'badge badge-low';
   }
 
-  const visible = hideCompleted ? changes.filter(r => !r.hasActual) : changes;
+  const FREE_ROW_LIMIT = 15;
+  const _isFreeRestricted = window.CC?.Auth?.isFreeRestricted?.() || false;
+  const allVisible = hideCompleted ? changes.filter(r => !r.hasActual) : changes;
+  const visible = _isFreeRestricted ? allVisible.slice(0, FREE_ROW_LIMIT) : allVisible;
+  const _msBannerNeeded = _isFreeRestricted && allVisible.length > FREE_ROW_LIMIT;
 
-  if (visible.length === 0) {
+  if (allVisible.length === 0) {
     tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">${
       changes.length === 0 ? 'No milestone date changes between these versions.'
       : 'All changed milestones are complete. Uncheck "Hide completed" to view.'
     }</td></tr>`;
     return;
   }
+
 
   // Build WBS tree and group changed milestones into it
   const wbsSource = _v2?.wbsLookup || _v1?.wbsLookup || [];
@@ -637,6 +642,13 @@ function renderMilestoneChanges() {
     });
   }
 
+  if (_msBannerNeeded) {
+    const hidden = allVisible.length - FREE_ROW_LIMIT;
+    rows.push(`<tr><td colspan="5" style="padding:14px 16px;background:#f8f7ff;border-top:2px solid #7c6fe0;text-align:center;">
+      <span style="font-size:13px;color:#5b4ec4;font-weight:600;">+ ${hidden} more milestone${hidden !== 1 ? 's' : ''} hidden.</span>
+      <a href="index.html#pricing" style="margin-left:10px;font-size:13px;color:#7c6fe0;font-weight:700;text-decoration:underline;">Upgrade to Pro to see all →</a>
+    </td></tr>`);
+  }
   tbody.innerHTML = rows.join('');
 }
 
@@ -727,14 +739,19 @@ function _debouncedActFilter() {
   _actFilterTimer = setTimeout(filterActivityChanges, 280);
 }
 
+let _actTotalBeforeCap = 0;
 function filterActivityChanges() {
   const q     = (document.getElementById('actSearch')?.value || '').toLowerCase().trim();
   const typeF = document.getElementById('actTypeFilter')?.value || '';
-  _filteredActivityChanges = _allActivityChanges.filter(c => {
+  const ACT_FREE_ROW_LIMIT = 15;
+  const _isFreeRestricted = window.CC?.Auth?.isFreeRestricted?.() || false;
+  const all = _allActivityChanges.filter(c => {
     if (typeF && c.type !== typeF) return false;
     if (q && !(c.name||'').toLowerCase().includes(q) && !(c.code||'').toLowerCase().includes(q)) return false;
     return true;
   });
+  _actTotalBeforeCap = all.length;
+  _filteredActivityChanges = _isFreeRestricted ? all.slice(0, ACT_FREE_ROW_LIMIT) : all;
   _renderActivityTree();
 }
 
@@ -851,6 +868,14 @@ function _doRenderActivityTree(tbody, changes, hasFilters) {
     changes.forEach(c => renderActItem(c, '', false));
   }
 
+  const _actIsFreeRestricted = window.CC?.Auth?.isFreeRestricted?.() || false;
+  if (_actIsFreeRestricted && _actTotalBeforeCap > changes.length) {
+    const hiddenAct = _actTotalBeforeCap - changes.length;
+    rows.push(`<tr><td colspan="8" style="padding:14px 16px;background:#f8f7ff;border-top:2px solid #7c6fe0;text-align:center;">
+      <span style="font-size:13px;color:#5b4ec4;font-weight:600;">+ ${hiddenAct} more activit${hiddenAct !== 1 ? 'ies' : 'y'} hidden.</span>
+      <a href="index.html#pricing" style="margin-left:10px;font-size:13px;color:#7c6fe0;font-weight:700;text-decoration:underline;">Upgrade to Pro to see all →</a>
+    </td></tr>`);
+  }
   tbody.innerHTML = rows.join('');
 }
 
@@ -1120,6 +1145,10 @@ function _collapseAllMsWBS() {
 
 // ── Milestone Excel Export ────────────────────────────────────
 async function exportMilestonesXlsx(mode) {
+  if (window.CC?.Auth?.isFreeRestricted?.()) {
+    window.CC.showUpgradeModal('Excel export');
+    return;
+  }
   const changes = mode === 'all' ? _msAllChanges : _msVisibleChanges;
   if (!changes || changes.length === 0) {
     App.showAlert('No milestone changes to export.', 'warning');
@@ -1278,6 +1307,10 @@ document.addEventListener('click', e => {
 
 // ── Excel Export (ExcelJS, lazy-loaded) ───────────────────────
 async function exportActivityXlsx(mode) {
+  if (window.CC?.Auth?.isFreeRestricted?.()) {
+    window.CC.showUpgradeModal('Excel export');
+    return;
+  }
   const changes = mode === 'all' ? _allActivityChanges : _filteredActivityChanges;
   if (!changes || changes.length === 0) {
     App.showAlert('No activity changes to export.', 'warning');
