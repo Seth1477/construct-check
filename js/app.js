@@ -92,15 +92,18 @@ const App = {
         this.projects = merged;
         try { localStorage.setItem(this._storageKey('projects'), JSON.stringify(merged)); } catch(e) {}
         console.log('[App] Loaded', sbProjects.length, 'projects from Supabase' + (localOnly.length ? ` + ${localOnly.length} local-only` : ''));
-      } else if (this.projects.length === 0) {
-        // Truly first load with no data anywhere — show demo projects in-memory only.
-        // Do NOT write demo data to Supabase; it would overwrite real data on the next sync.
-        const emailLower = email.toLowerCase();
-        if (emailLower === this.ADMIN_EMAIL) {
-          this.projects = typeof DEMO_PROJECTS !== 'undefined' ? DEMO_PROJECTS : [];
-          if (typeof DEMO_SCHEDULE_VERSIONS !== 'undefined' && this.scheduleVersions.length === 0) {
-            this.scheduleVersions = DEMO_SCHEDULE_VERSIONS;
-          }
+      }
+
+      // For admin: always inject demo projects in-memory (never persisted).
+      // Runs after any Supabase/local load so demo data coexists with real projects.
+      if (email.toLowerCase() === this.ADMIN_EMAIL && typeof DEMO_PROJECTS !== 'undefined') {
+        const demoIds = new Set(DEMO_PROJECTS.map(p => p.id));
+        const realProjects = (this.projects || []).filter(p => !demoIds.has(p.id));
+        this.projects = [...DEMO_PROJECTS, ...realProjects];
+        if (typeof DEMO_SCHEDULE_VERSIONS !== 'undefined') {
+          const demoVerIds = new Set(DEMO_SCHEDULE_VERSIONS.map(v => v.id));
+          const realVersions = (this.scheduleVersions || []).filter(v => !demoVerIds.has(v.id));
+          this.scheduleVersions = [...DEMO_SCHEDULE_VERSIONS, ...realVersions];
         }
       }
     } catch(e) {
@@ -115,21 +118,27 @@ const App = {
   },
 
   // ─── Storage: Save ───────────────────────────────────────────
+  // Strip demo-only items before persisting — demo data is always in-memory only
+  _realProjects()  { return (this.projects        || []).filter(p => !p.isDemo); },
+  _realVersions()  { return (this.scheduleVersions || []).filter(v => !v.isDemo); },
+
   _saveProjectsSync() {
+    const toSave = this._realProjects();
     try {
-      localStorage.setItem(this._storageKey('projects'), JSON.stringify(this.projects));
+      localStorage.setItem(this._storageKey('projects'), JSON.stringify(toSave));
     } catch(e) {
       console.error('[App] _saveProjectsSync failed:', e);
     }
     // Also back up to IndexedDB (fire-and-forget)
-    DataStore.saveProjects(this._currentEmail(), this.projects).catch(() => {});
+    DataStore.saveProjects(this._currentEmail(), toSave).catch(() => {});
   },
 
   async _saveVersionsAsync() {
     const email = this._currentEmail();
+    const toSave = this._realVersions();
     try {
-      await DataStore.saveVersions(email, this.scheduleVersions);
-      console.log('[App] Saved', this.scheduleVersions.length, 'versions to IndexedDB');
+      await DataStore.saveVersions(email, toSave);
+      console.log('[App] Saved', toSave.length, 'versions to IndexedDB');
     } catch(e) {
       console.error('[App] _saveVersionsAsync failed:', e);
     }
@@ -144,10 +153,12 @@ const App = {
   // Awaitable save — use before redirecting so Supabase is fully updated
   async saveToStorageAsync() {
     const email = this._currentEmail();
-    try { localStorage.setItem(this._storageKey('projects'), JSON.stringify(this.projects)); } catch(e) {}
+    const toSaveP = this._realProjects();
+    const toSaveV = this._realVersions();
+    try { localStorage.setItem(this._storageKey('projects'), JSON.stringify(toSaveP)); } catch(e) {}
     await Promise.all([
-      DataStore.saveProjects(email, this.projects),
-      DataStore.saveVersions(email, this.scheduleVersions)
+      DataStore.saveProjects(email, toSaveP),
+      DataStore.saveVersions(email, toSaveV)
     ]);
   },
 

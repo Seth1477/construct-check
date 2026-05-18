@@ -7,7 +7,7 @@
 // ─────────────────────────────────────────────────────────────
 const DEMO_PROJECTS = [
   {
-    id: 'proj-001',
+    id: 'proj-001', isDemo: true,
     name: "Iron Man's Stark Tower Rebuild",
     client: 'Stark Industries',
     contractValue: '$4,200,000,000',
@@ -25,7 +25,7 @@ const DEMO_PROJECTS = [
     updatedAt: '2026-04-01'
   },
   {
-    id: 'proj-002',
+    id: 'proj-002', isDemo: true,
     name: "Captain America's Super-Soldier Bunker",
     client: 'S.H.I.E.L.D.',
     contractValue: '$920,000,000',
@@ -43,7 +43,7 @@ const DEMO_PROJECTS = [
     updatedAt: '2026-03-15'
   },
   {
-    id: 'proj-003',
+    id: 'proj-003', isDemo: true,
     name: "Thor's Bifrost Terminal & Asgardian Embassy",
     client: 'Asgardian Royal Council',
     contractValue: '$999,000,000',
@@ -61,7 +61,7 @@ const DEMO_PROJECTS = [
     updatedAt: '2026-04-05'
   },
   {
-    id: 'proj-004',
+    id: 'proj-004', isDemo: true,
     name: "Batman's Batcave Expansion",
     client: 'Wayne Enterprises',
     contractValue: '$890,000,000',
