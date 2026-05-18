@@ -14,7 +14,7 @@
   <script src="js/supabase-config.js"></script>
   <script src="js/auth.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/dist/plot.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- ExcelJS loaded lazily on first export click -->
   <style>
   /* ── Print-only elements hidden on screen ── */
   .print-only { display: none !important; }
@@ -380,6 +380,8 @@ function buildDiagData(version) {
         threshold:   r.threshold || 'N/A',
         recommendation: r.recommendation || `Address the ${r.count} activities flagged by this rule.`,
         totalActivities: r.totalActivities || version.activityCount || 0,
+        dcmaPoint: r.dcmaPoint ?? null,
+        pass: r.pass ?? null,
         activities
       };
     });
@@ -405,7 +407,9 @@ function initResizableColumns(table) {
   table.dataset.resizeInit = '1';
   table.querySelectorAll('thead th').forEach((th, i, all) => {
     if (i === all.length - 1) return; // skip last (flag column)
-    th.style.position = 'relative';
+    // NOTE: do NOT override th.style.position — CSS sets it to 'sticky' and
+    // we must not clobber that. Sticky elements already form a containing
+    // block for abs-positioned children (same as relative), so the handle works.
     const handle = document.createElement('div');
     handle.className = 'col-resize-handle';
     th.appendChild(handle);
@@ -932,11 +936,7 @@ function toggleCatRules(catCb) {
   document.querySelectorAll(`.excel-rule-cb[data-cat="${cat}"]`).forEach(cb => { cb.checked = catCb.checked; });
 }
 
-function doExcelExport() {
-  if (typeof XLSX === 'undefined') {
-    App.showAlert('Excel library still loading — please try again in a moment.', 'error');
-    return;
-  }
+async function doExcelExport() {
   const diagData = _excelDiagData;
   if (!diagData) return;
 
@@ -945,56 +945,182 @@ function doExcelExport() {
   );
   if (selectedKeys.size === 0) { App.showAlert('Select at least one section to export.', 'error'); return; }
 
-  const wb = XLSX.utils.book_new();
+  // Lazy-load ExcelJS (~1 MB, cached after first load)
+  if (!window.ExcelJS) {
+    App.showAlert('Loading export library…', 'info');
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('ExcelJS load failed'));
+      document.head.appendChild(s);
+    }).catch(() => { App.showAlert('Could not load export library.', 'error'); throw new Error(); });
+  }
 
-  // ── Summary sheet (always included) ──
-  const projName  = _diagProject?.name || '';
-  const verName   = _activeVersion?.version || '';
-  const genDate   = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
-  const summaryRows = [
-    ['Construct Check — DCMA+ Schedule Validation Report'],
-    [`Project: ${projName}`, '', `Version: ${verName}`, '', `Overall Score: ${_activeVersion?.overallScore ?? '—'}/100`],
-    [`Generated: ${genDate}`],
-    [],
-    ['Category', 'Severity', 'Rule / Check', 'Affected Activities', '% of Total', 'Score Penalty (pts)', 'DCMA Threshold']
-  ];
-  diagData.forEach(d => {
-    summaryRows.push([
-      d.category, d.severity.toUpperCase(), d.title,
-      d.count, d.percent + '%', '-' + d.penalty.toFixed(1), d.threshold
+  const projName     = _diagProject?.name || '';
+  const verName      = _activeVersion?.version || '';
+  const genDate      = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
+  const overallScore = _activeVersion?.overallScore ?? '—';
+
+  const PURPLE       = 'FF7C6FE0';
+  const PURPLE_LIGHT = 'FFF1F0FB';
+  const WHITE        = 'FFFFFFFF';
+  const DARK         = 'FF1E1B4B';
+  const GREY         = 'FF64748B';
+  const SEV_FILLS = {
+    critical: { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFEE2E2' } },
+    high:     { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFFE4CC' } },
+    medium:   { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFEF3C7' } },
+    low:      { type:'pattern', pattern:'solid', fgColor:{ argb:'FFE0F2FE' } },
+  };
+  const ALT_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF8F7FD' } };
+  const HDR_BORDER = { right: { style:'thin', color:{ argb:'FFB8B0F5' } } };
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Construct Check';
+  wb.created = new Date();
+
+  // ── Helper: apply branded header rows (rows 1–6) to a worksheet ──────────────
+  function applyBrandedHeader(ws, title, subtitle, countLine, colLabels, colWidths, lastColLetter) {
+    ws.columns = colLabels.map((_, i) => ({ width: colWidths[i] }));
+
+    // Row 1: purple title bar
+    ws.mergeCells(`A1:${lastColLetter}1`);
+    Object.assign(ws.getCell('A1'), {
+      value: title,
+      font:  { bold:true, size:14, color:{ argb:WHITE }, name:'Calibri' },
+      fill:  { type:'pattern', pattern:'solid', fgColor:{ argb:PURPLE } },
+      alignment: { horizontal:'center', vertical:'middle' }
+    });
+    ws.getRow(1).height = 30;
+
+    // Row 2: project/version info
+    ws.mergeCells(`A2:${lastColLetter}2`);
+    Object.assign(ws.getCell('A2'), {
+      value: subtitle,
+      font:  { size:10, color:{ argb:DARK } },
+      fill:  { type:'pattern', pattern:'solid', fgColor:{ argb:PURPLE_LIGHT } },
+      alignment: { horizontal:'center', vertical:'middle' }
+    });
+    ws.getRow(2).height = 20;
+
+    // Row 3: summary count line
+    ws.mergeCells(`A3:${lastColLetter}3`);
+    Object.assign(ws.getCell('A3'), {
+      value: countLine,
+      font:  { size:9, italic:true, color:{ argb:GREY } },
+      alignment: { horizontal:'left', vertical:'middle', indent:1 }
+    });
+    ws.getRow(3).height = 16;
+
+    // Rows 4–5: spacers
+    ws.mergeCells(`A4:${lastColLetter}4`); ws.getRow(4).height = 4;
+    ws.mergeCells(`A5:${lastColLetter}5`); ws.getRow(5).height = 4;
+
+    // Row 6: purple column headers
+    const hdr = ws.getRow(6);
+    colLabels.forEach((label, i) => {
+      const cell = hdr.getCell(i + 1);
+      cell.value = label;
+      cell.font  = { bold:true, size:10, color:{ argb:WHITE } };
+      cell.fill  = { type:'pattern', pattern:'solid', fgColor:{ argb:PURPLE } };
+      cell.alignment = { horizontal:'left', vertical:'middle' };
+      cell.border = HDR_BORDER;
+    });
+    hdr.height = 22;
+    ws.autoFilter = { from:'A6', to:`${lastColLetter}6` };
+    ws.views = [{ state:'frozen', ySplit:6 }];
+  }
+
+  // ── SUMMARY SHEET ─────────────────────────────────────────────────────────────
+  const SUM_LABELS = ['DCMA #','Category','Check','Severity','Activities','% of Total','Score Penalty','Threshold','Status'];
+  const SUM_WIDTHS = [10, 26, 46, 12, 14, 12, 18, 46, 10];
+
+  const critCount = diagData.filter(d => d.severity === 'critical').length;
+  const highCount = diagData.filter(d => d.severity === 'high').length;
+
+  const ws = wb.addWorksheet('Summary');
+  applyBrandedHeader(
+    ws,
+    'CONSTRUCT CHECK  —  DCMA+ Schedule Validation Report',
+    `${projName}   ·   Version: ${verName}   ·   Overall Score: ${overallScore}/100   ·   Generated: ${genDate}`,
+    `${diagData.length} checks run  ·  ${critCount} Critical  ·  ${highCount} High`,
+    SUM_LABELS, SUM_WIDTHS, 'I'
+  );
+
+  diagData.forEach((d, idx) => {
+    const row = ws.addRow([
+      d.dcmaPoint ? `#${d.dcmaPoint}` : '—',
+      d.category,
+      d.title,
+      d.severity.toUpperCase(),
+      d.count,
+      d.percent + '%',
+      d.penalty > 0 ? `−${d.penalty.toFixed(1)}` : '0',
+      d.threshold,
+      d.pass === true ? 'PASS' : d.pass === false ? 'FAIL' : '—'
     ]);
+    row.height = 15;
+    const fill = SEV_FILLS[d.severity] || (idx % 2 === 0 ? { type:'pattern', pattern:'none' } : ALT_FILL);
+    row.eachCell({ includeEmpty:true }, (cell, col) => {
+      cell.fill = fill;
+      cell.font = { size:9 };
+      cell.alignment = { vertical:'middle' };
+      if (col === 7 && d.penalty > 0) cell.font = { size:9, bold:true, color:{ argb:'FFDC2626' } };
+      if (col === 9) cell.font = { size:9, bold:true, color:{ argb: d.pass ? 'FF16A34A' : 'FFDC2626' } };
+    });
   });
-  const summaryWs = XLSX.utils.aoa_to_sheet(summaryRows);
-  // Column widths
-  summaryWs['!cols'] = [22,12,38,12,10,14,30].map(w => ({ wch: w }));
-  XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
 
-  // ── One sheet per selected rule ──
+  // ── PER-RULE DETAIL SHEETS ────────────────────────────────────────────────────
+  const DETAIL_LABELS = ['Activity ID','Activity Name','WBS','Start','Finish','Float (days)','Critical'];
+  const DETAIL_WIDTHS = [16, 46, 32, 18, 18, 14, 10];
   const sheetNames = new Set();
-  diagData.filter(d => selectedKeys.has(d.ruleKey)).forEach(d => {
-    const rows = [['Activity ID', 'Activity Name', 'WBS', 'Start', 'Finish', 'Float (days)', 'Critical']];
-    d.activities.forEach(a => rows.push([
-      a.id, a.name, a.wbs,
-      App.formatDate(a.startDate), App.formatDate(a.finishDate),
-      a.float, a.isCritical ? 'Yes' : ''
-    ]));
 
-    // Excel sheet names: max 31 chars, no special chars, must be unique
+  diagData.filter(d => selectedKeys.has(d.ruleKey)).forEach(d => {
     let name = d.title.replace(/[\\\/\?\*\[\]:]/g, '').substring(0, 31).trim();
     if (sheetNames.has(name)) name = name.substring(0, 28) + '_' + sheetNames.size;
     sheetNames.add(name);
 
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [14, 32, 24, 12, 12, 10, 8].map(w => ({ wch: w }));
-    XLSX.utils.book_append_sheet(wb, ws, name);
+    const dws = wb.addWorksheet(name);
+    applyBrandedHeader(
+      dws,
+      `CONSTRUCT CHECK  —  ${d.title}`,
+      `${projName}  ·  ${verName}  ·  ${d.count} activities (${d.percent}%)  ·  Score Penalty: −${d.penalty.toFixed(1)} pts`,
+      `Category: ${d.category}  ·  Severity: ${d.severity.toUpperCase()}  ·  Threshold: ${d.threshold}`,
+      DETAIL_LABELS, DETAIL_WIDTHS, 'G'
+    );
+
+    const rowFill = SEV_FILLS[d.severity] || { type:'pattern', pattern:'none' };
+    d.activities.forEach((a, idx) => {
+      const row = dws.addRow([
+        a.id, a.name, a.wbs,
+        App.formatDate(a.startDate), App.formatDate(a.finishDate),
+        typeof a.float === 'number' ? a.float : '',
+        a.isCritical ? 'Yes' : ''
+      ]);
+      row.height = 15;
+      const fill = idx % 2 === 0 ? rowFill : ALT_FILL;
+      row.eachCell({ includeEmpty:true }, cell => {
+        cell.fill = fill;
+        cell.font = { size:9 };
+        cell.alignment = { vertical:'middle' };
+      });
+    });
   });
 
-  // Download
-  const proj = (_diagProject?.name || 'Report').replace(/[^a-zA-Z0-9\s]/g,'').trim().replace(/\s+/g,'_');
-  const ver  = (_activeVersion?.version || '').replace(/\s+/g,'_');
-  XLSX.writeFile(wb, `ConstructCheck_${proj}_${ver}.xlsx`);
+  // ── Download ──────────────────────────────────────────────────────────────────
+  const proj   = projName.replace(/[^a-z0-9]/gi, '_').replace(/__+/g, '_') || 'Report';
+  const ver    = verName.replace(/[^a-z0-9]/gi, '_').replace(/__+/g, '_');
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob   = new Blob([buffer], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const link   = document.createElement('a');
+  link.href    = URL.createObjectURL(blob);
+  link.download = `ConstructCheck_${proj}_Diagnostics_${ver}.xlsx`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+
   document.getElementById('excelModal').style.display = 'none';
-  App.showAlert(`Exported ${sheetNames.size} section${sheetNames.size!==1?'s':''} + Summary sheet.`, 'success');
+  App.showAlert(`Exported ${sheetNames.size} rule sheet${sheetNames.size!==1?'s':''} + Summary.`, 'success');
 }
 
 // ─── CSV Export ───────────────────────────────────────────────────────────────
