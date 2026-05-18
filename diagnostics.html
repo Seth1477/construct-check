@@ -521,22 +521,30 @@ function buildDiagCard(d) {
   const sc = sevColors[d.severity] || sevColors.low;
   const penaltyColor = d.severity === 'critical' ? '#ef4444' : d.severity === 'high' ? '#f97316' : '#f59e0b';
 
-  const cardIdx   = Object.keys(_actRegistry).length;
+  const cardIdx        = Object.keys(_actRegistry).length;
   _actRegistry[cardIdx] = d.activities; // store full list for "show more"
 
-  const shown     = d.activities.slice(0, PAGE_SIZE);
-  const firstRows = shown.map(buildActRow).join('');
-  const remaining = d.activities.length - shown.length;
-  const totalLabel = d.count > d.activities.length
+  const _diagFreeRestricted = window.CC?.Auth?.isFreeRestricted?.() || false;
+  const _diagLimit  = _diagFreeRestricted ? 15 : PAGE_SIZE;
+  const shown       = d.activities.slice(0, _diagLimit);
+  const firstRows   = shown.map(buildActRow).join('');
+  const remaining   = d.activities.length - shown.length;
+  const totalLabel  = d.count > d.activities.length
     ? `${d.activities.length} of ${d.count} total`
     : `${d.activities.length}`;
 
-  const showMoreHtml = remaining > 0 ? `
-    <div class="diag-show-more" style="text-align:center;padding:10px 0 4px;">
-      <button class="btn btn-secondary btn-sm" onclick="showMoreActivities(this,${cardIdx})">
-        Show ${remaining} more activities ▼
-      </button>
-    </div>` : '';
+  const showMoreHtml = remaining > 0
+    ? (_diagFreeRestricted
+        ? `<div style="padding:12px 16px;background:#f8f7ff;border-top:2px solid #7c6fe0;text-align:center;border-radius:0 0 8px 8px;">
+             <span style="font-size:13px;color:#5b4ec4;font-weight:600;">+ ${remaining} more activit${remaining !== 1 ? 'ies' : 'y'} hidden.</span>
+             <a href="index.html#pricing" style="margin-left:10px;font-size:13px;color:#7c6fe0;font-weight:700;text-decoration:underline;">Upgrade to Pro to see all →</a>
+           </div>`
+        : `<div class="diag-show-more" style="text-align:center;padding:10px 0 4px;">
+             <button class="btn btn-secondary btn-sm" onclick="showMoreActivities(this,${cardIdx})">
+               Show ${remaining} more activities ▼
+             </button>
+           </div>`)
+    : '';
 
   return `
     <div class="diagnostic-card card mb-4" data-severity="${d.severity}" data-category="${escHtml(d.category)}" data-title="${d.title.toLowerCase()}"
