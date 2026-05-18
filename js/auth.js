@@ -125,6 +125,20 @@
       return { ok: true };
     },
 
+    async loginWithGoogle() {
+      if (!SB_OK) {
+        return { ok: false, error: 'Google sign-in requires cloud configuration. Please use email/password.' };
+      }
+      const { error } = await CC_SB.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin + '/dashboard.html'
+        }
+      });
+      if (error) return { ok: false, error: _sbErrMsg(error) };
+      return { ok: true }; // browser will redirect to Google before this returns
+    },
+
     async register(name, email, password) {
       email = email.toLowerCase().trim();
       if (SB_OK) {
