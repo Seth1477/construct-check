@@ -105,57 +105,8 @@
       </button>
     </div>
 
-    <!-- Summary Delta Cards -->
-    <div class="grid-4 gap-4 mb-6" id="summaryCards">
-      <div class="delta-card card delta-negative" style="position:relative">
-        <button class="eye-icon-btn" data-info-topic="critical-path" title="What drives finish slippage?"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-        <div class="delta-icon">📅</div>
-        <div class="delta-value text-red">+24d</div>
-        <div class="delta-label">Finish Date Slippage</div>
-        <div class="delta-context">Oct 21 → Nov 14, 2026</div>
-      </div>
-      <div class="delta-card card delta-negative" style="position:relative">
-        <button class="eye-icon-btn" data-info-topic="critical-path" title="What is Critical Path Slip?"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-        <div class="delta-icon">🔴</div>
-        <div class="delta-value text-red">+18d</div>
-        <div class="delta-label">Critical Path Slip</div>
-        <div class="delta-context">Longest path extended</div>
-      </div>
-      <div class="delta-card card delta-neutral" style="position:relative">
-        <button class="eye-icon-btn" data-info-topic="overall-score" title="What does Score Change mean?"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-        <div class="delta-icon">📊</div>
-        <div class="delta-value text-amber">-1 pt</div>
-        <div class="delta-label">Score Change</div>
-        <div class="delta-context">72 → 71 (Amber)</div>
-      </div>
-      <div class="delta-card card delta-negative" style="position:relative">
-        <button class="eye-icon-btn" data-info-topic="negative-float" title="What is Negative Float?"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-        <div class="delta-icon">⚠️</div>
-        <div class="delta-value text-red">+5</div>
-        <div class="delta-label">Negative Float Delta</div>
-        <div class="delta-context">18 → 23 activities</div>
-      </div>
-    </div>
-
-    <!-- Activity Stats Row -->
-    <div class="grid-4 gap-4 mb-6">
-      <div class="stat-mini card">
-        <div class="stat-mini-value text-green">+12</div>
-        <div class="stat-mini-label">Activities Added</div>
-      </div>
-      <div class="stat-mini card">
-        <div class="stat-mini-value text-red">-4</div>
-        <div class="stat-mini-label">Activities Deleted</div>
-      </div>
-      <div class="stat-mini card">
-        <div class="stat-mini-value text-amber">87</div>
-        <div class="stat-mini-label">Activities Changed</div>
-      </div>
-      <div class="stat-mini card">
-        <div class="stat-mini-value text-amber">23</div>
-        <div class="stat-mini-label">Logic Changes</div>
-      </div>
-    </div>
+    <!-- Compact Summary Strip -->
+    <div class="summary-strip card mb-4" id="summaryCards"></div>
 
     <!-- Comparison Tabs -->
     <div class="tabs">
@@ -440,7 +391,7 @@ function renderSummaryCards() {
   const negFloatDelta = b2.negative - b1.negative;
 
   let finishDeltaDays = null;
-  let finishCtx = 'No planned finish recorded';
+  let finishCtx = '—';
   if (_v1.plannedFinish && _v2.plannedFinish) {
     finishDeltaDays = Math.round((new Date(_v2.plannedFinish) - new Date(_v1.plannedFinish)) / 86400000);
     finishCtx = `${App.formatDate(_v1.plannedFinish)} → ${App.formatDate(_v2.plannedFinish)}`;
@@ -450,75 +401,38 @@ function renderSummaryCards() {
   const cp2 = _v2.criticalPath?.projectDuration || null;
   const cpSlip = (cp1 !== null && cp2 !== null) ? Math.round(cp2 - cp1) : null;
 
-  const cards = document.getElementById('summaryCards');
-  if (!cards) return;
-  cards.innerHTML = `
-    <div class="delta-card card ${finishDeltaDays > 0 ? 'delta-negative' : finishDeltaDays < 0 ? 'delta-positive' : 'delta-neutral'}">
-      <div class="delta-icon">📅</div>
-      <div class="delta-value ${finishDeltaDays > 0 ? 'text-red' : finishDeltaDays < 0 ? 'text-green' : 'text-secondary'}">
-        ${finishDeltaDays !== null ? (finishDeltaDays > 0 ? '+' : '') + finishDeltaDays + 'd' : 'N/A'}
-      </div>
-      <div class="delta-label">Finish Date Movement</div>
-      <div class="delta-context">${finishCtx}</div>
-    </div>
-    <div class="delta-card card ${cpSlip > 0 ? 'delta-negative' : cpSlip < 0 ? 'delta-positive' : 'delta-neutral'}">
-      <div class="delta-icon">🔴</div>
-      <div class="delta-value ${cpSlip > 0 ? 'text-red' : cpSlip < 0 ? 'text-green' : 'text-secondary'}">
-        ${cpSlip !== null ? (cpSlip > 0 ? '+' : '') + cpSlip + 'd' : 'N/A'}
-      </div>
-      <div class="delta-label">Critical Path Change</div>
-      <div class="delta-context">Longest path duration</div>
-    </div>
-    <div class="delta-card card ${scoreChange < -2 ? 'delta-negative' : scoreChange > 2 ? 'delta-positive' : 'delta-neutral'}">
-      <div class="delta-icon">📊</div>
-      <div class="delta-value ${scoreChange < 0 ? 'text-red' : scoreChange > 0 ? 'text-green' : 'text-secondary'}">
-        ${scoreChange > 0 ? '+' : ''}${scoreChange} pt${Math.abs(scoreChange) !== 1 ? 's' : ''}
-      </div>
-      <div class="delta-label">Score Change</div>
-      <div class="delta-context">${_v1.overallScore} → ${_v2.overallScore}</div>
-    </div>
-    <div class="delta-card card ${negFloatDelta > 0 ? 'delta-negative' : negFloatDelta < 0 ? 'delta-positive' : 'delta-neutral'}">
-      <div class="delta-icon">⚠️</div>
-      <div class="delta-value ${negFloatDelta > 0 ? 'text-red' : negFloatDelta < 0 ? 'text-green' : 'text-secondary'}">
-        ${negFloatDelta > 0 ? '+' : ''}${negFloatDelta}
-      </div>
-      <div class="delta-label">Negative Float Delta</div>
-      <div class="delta-context">${b1.negative} → ${b2.negative} activities</div>
-    </div>`;
+  const actDelta = (_v2.activityCount || 0) - (_v1.activityCount || 0);
+  const relDelta = (_v2.relationshipCount || 0) - (_v1.relationshipCount || 0);
+  const milDelta = (_v2.milestoneCount || 0) - (_v1.milestoneCount || 0);
+
+  const fmt  = (n, suffix = '') => (n === null ? 'N/A' : (n > 0 ? '+' : '') + n + suffix);
+  const cls  = n => n === null ? 'strip-neutral' : (n > 0 ? 'strip-bad' : n < 0 ? 'strip-good' : 'strip-neutral');
+  // For score: positive is good, negative is bad
+  const clsScore = n => n > 0 ? 'strip-good' : n < 0 ? 'strip-bad' : 'strip-neutral';
+
+  const strip = document.getElementById('summaryCards');
+  if (!strip) return;
+
+  const items = [
+    { val: fmt(finishDeltaDays, 'd'), cls: cls(finishDeltaDays), lbl: 'Finish',    sub: finishCtx },
+    { val: fmt(cpSlip, 'd'),          cls: cls(cpSlip),          lbl: 'Crit Path', sub: 'duration Δ' },
+    { val: fmt(scoreChange, ' pts'),  cls: clsScore(scoreChange), lbl: 'Score',     sub: `${_v1.overallScore} → ${_v2.overallScore}` },
+    { val: fmt(negFloatDelta),        cls: cls(negFloatDelta),    lbl: 'Neg Float', sub: `${b1.negative} → ${b2.negative} acts` },
+    { val: fmt(actDelta),             cls: cls(actDelta),         lbl: 'Activities',sub: `${_v1.activityCount || 0} → ${_v2.activityCount || 0}` },
+    { val: fmt(relDelta),             cls: cls(relDelta),         lbl: 'Relationships', sub: `${_v1.relationshipCount || 0} → ${_v2.relationshipCount || 0}` },
+    { val: fmt(milDelta),             cls: cls(milDelta),         lbl: 'Milestones',sub: `${_v1.milestoneCount || 0} → ${_v2.milestoneCount || 0}` },
+  ];
+
+  strip.innerHTML = items.map((item, i) => `
+    <div class="strip-item${i < items.length - 1 ? ' strip-divider' : ''}">
+      <div class="strip-val ${item.cls}">${item.val}</div>
+      <div class="strip-lbl">${item.lbl}</div>
+      <div class="strip-sub">${item.sub}</div>
+    </div>`).join('');
 }
 
-// ── Activity Stats Row ────────────────────────────────────────
-function renderActivityStats() {
-  const actDelta  = (_v2.activityCount || 0) - (_v1.activityCount || 0);
-  const relDelta  = (_v2.relationshipCount || 0) - (_v1.relationshipCount || 0);
-  const milDelta  = (_v2.milestoneCount || 0) - (_v1.milestoneCount || 0);
-  const b1 = floatBuckets(_v1);
-  const b2 = floatBuckets(_v2);
-  const negDelta  = b2.negative - b1.negative;
-  const fmt = n => (n > 0 ? '+' : '') + n;
-  const cls = n => n > 0 ? 'text-red' : n < 0 ? 'text-green' : 'text-secondary';
-
-  const rows = document.querySelectorAll('.grid-4.gap-4.mb-6');
-  const statsRow = rows[1];
-  if (!statsRow) return;
-  statsRow.innerHTML = `
-    <div class="stat-mini card">
-      <div class="stat-mini-value ${cls(actDelta)}">${fmt(actDelta)}</div>
-      <div class="stat-mini-label">Activities (${_v1.activityCount || 0} → ${_v2.activityCount || 0})</div>
-    </div>
-    <div class="stat-mini card">
-      <div class="stat-mini-value ${cls(relDelta)}">${fmt(relDelta)}</div>
-      <div class="stat-mini-label">Relationships (${_v1.relationshipCount || 0} → ${_v2.relationshipCount || 0})</div>
-    </div>
-    <div class="stat-mini card">
-      <div class="stat-mini-value ${cls(milDelta)}">${fmt(milDelta)}</div>
-      <div class="stat-mini-label">Milestones (${_v1.milestoneCount || 0} → ${_v2.milestoneCount || 0})</div>
-    </div>
-    <div class="stat-mini card">
-      <div class="stat-mini-value ${cls(negDelta)}">${fmt(negDelta)}</div>
-      <div class="stat-mini-label">Neg. Float (${b1.negative} → ${b2.negative})</div>
-    </div>`;
-}
+// ── Activity Stats Row (merged into renderSummaryCards above) ─
+function renderActivityStats() { /* no-op — stats merged into summary strip */ }
 
 // ── Milestone Changes ─────────────────────────────────────────
 function renderMilestoneChanges() {

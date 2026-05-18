@@ -1709,20 +1709,48 @@ body {
 .comp-version-detail { display: flex; align-items: center; gap: 8px; }
 .comp-arrow { font-size: 28px; color: #94a3b8; padding-bottom: 30px; flex-shrink: 0; }
 
-/* Delta Cards */
-.delta-card { text-align: center; padding: 20px 16px; }
-.delta-icon { font-size: 24px; margin-bottom: 8px; }
-.delta-value { font-size: 28px; font-weight: 800; margin-bottom: 4px; }
-.delta-label { font-size: 13px; color: #374151; font-weight: 600; margin-bottom: 4px; }
-.delta-context { font-size: 11px; color: #94a3b8; }
-.delta-negative { border-top: 3px solid #ef4444; }
-.delta-neutral { border-top: 3px solid #f59e0b; }
-.delta-positive { border-top: 3px solid #22c55e; }
-
-/* Stat Mini */
-.stat-mini { text-align: center; padding: 16px; }
-.stat-mini-value { font-size: 26px; font-weight: 800; margin-bottom: 4px; }
-.stat-mini-label { font-size: 12px; color: #64748b; }
+/* Summary Strip */
+.summary-strip {
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+  overflow-x: auto;
+  gap: 0;
+}
+.strip-item {
+  flex: 1;
+  min-width: 90px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 12px;
+  text-align: center;
+}
+.strip-divider {
+  border-right: 1px solid #e2e8f0;
+}
+.strip-val {
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.1;
+  margin-bottom: 2px;
+}
+.strip-lbl {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.strip-sub {
+  font-size: 10px;
+  color: #94a3b8;
+}
+.strip-good    { color: #16a34a; }
+.strip-bad     { color: #dc2626; }
+.strip-neutral { color: #6b7280; }
 
 /* Narrative Card */
 .narrative-card {}
