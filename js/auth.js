@@ -43,6 +43,17 @@
   const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
   const lsSet = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 
+  // ── Admin preview-mode helpers ──────────────────────────────────
+  // Stores 'pro' (default) or 'free' per admin email so they can
+  // preview exactly what a free-tier user sees.
+  function _previewKey(email) { return 'cc_preview_' + email.toLowerCase(); }
+  function _getPreviewMode(email) {
+    return localStorage.getItem(_previewKey(email)) || 'pro';
+  }
+  function _setPreviewMode(email, mode) {
+    localStorage.setItem(_previewKey(email), mode);
+  }
+
   // ── Usage / plan helpers ────────────────────────────────────────
   const ADMIN_EMAILS              = ['speterson1477@gmail.com'];
   const TRIAL_DAYS                = 7;
@@ -252,14 +263,34 @@
     isPro() {
       const user = this.currentUser();
       if (!user) return false;
-      if (ADMIN_EMAILS.includes(user.email.toLowerCase())) return true;
+      if (ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+        // Admin in free-preview mode acts as a free-tier user
+        return _getPreviewMode(user.email) !== 'free';
+      }
       return (_usageFor(user.email).plan === 'pro');
     },
 
     isTrialActive() {
       const user = this.currentUser();
       if (!user) return false;
+      // Admin in free-preview mode simulates an expired trial
+      if (ADMIN_EMAILS.includes(user.email.toLowerCase()) && _getPreviewMode(user.email) === 'free') {
+        return false;
+      }
       return _isTrialActive(user.email);
+    },
+
+    getPreviewMode() {
+      const user = this.currentUser();
+      if (!user || !ADMIN_EMAILS.includes(user.email.toLowerCase())) return null;
+      return _getPreviewMode(user.email);
+    },
+
+    setPreviewMode(mode) {
+      const user = this.currentUser();
+      if (!user || !ADMIN_EMAILS.includes(user.email.toLowerCase())) return;
+      _setPreviewMode(user.email, mode);
+      window.location.reload();
     },
 
     isFreeRestricted() {
@@ -344,8 +375,53 @@
           showAccountPanel();
         });
       }
+
+      // Show/hide the admin free-preview banner
+      _renderPreviewBanner(user);
     },
   };
+
+  // ── Admin free-preview banner ───────────────────────────────────
+  function _renderPreviewBanner(user) {
+    if (!user || !ADMIN_EMAILS.includes(user.email.toLowerCase())) return;
+    const mode = _getPreviewMode(user.email);
+    const BANNER_ID = 'cc-preview-banner';
+    let banner = document.getElementById(BANNER_ID);
+
+    if (mode === 'free') {
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = BANNER_ID;
+        banner.style.cssText = [
+          'position:fixed;top:0;left:0;right:0;z-index:10000',
+          'background:#f59e0b;color:#1a1a1a',
+          'padding:7px 20px',
+          'font-size:13px;font-weight:700',
+          'display:flex;align-items:center;justify-content:center;gap:14px',
+          'box-shadow:0 2px 8px rgba(0,0,0,0.18)'
+        ].join(';');
+        banner.innerHTML = `
+          <span>👁 Admin Preview — viewing as <strong>Free Tier</strong> (trial expired)</span>
+          <button onclick="CC.Auth.setPreviewMode('pro')"
+            style="background:#1a1a1a;color:#f59e0b;border:none;padding:4px 14px;
+                   border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;
+                   white-space:nowrap;">
+            ↩ Switch back to Pro
+          </button>`;
+        document.body.prepend(banner);
+        // Push page content down so nothing is hidden under the banner
+        document.body.style.setProperty('--preview-banner-offset', '38px');
+        document.documentElement.style.setProperty('--preview-banner-offset', '38px');
+        // Apply offset to common layout elements
+        const sidebar = document.querySelector('.sidebar');
+        const main    = document.querySelector('.main-content, main, .content');
+        if (sidebar) sidebar.style.paddingTop = '38px';
+        if (main)    main.style.paddingTop    = (parseInt(getComputedStyle(main).paddingTop) || 0) + 38 + 'px';
+      }
+    } else if (banner) {
+      banner.remove();
+    }
+  }
 
   // ── Supabase error messages ─────────────────────────────────────
   function _sbErrMsg(err) {
@@ -392,10 +468,11 @@
     const usage = Auth.getUsage();
     if (!user) return;
 
-    const isAdmin   = ADMIN_EMAILS.includes(user.email.toLowerCase());
-    const isPro     = isAdmin || usage.plan === 'pro';
-    const planLabel = isAdmin ? 'Admin ★' : isPro ? 'Pro' : 'Free Trial';
-    const planColor = isPro ? '#7c6fe0' : '#94a3b8';
+    const isAdmin       = ADMIN_EMAILS.includes(user.email.toLowerCase());
+    const isPro         = isAdmin || usage.plan === 'pro';
+    const planLabel     = isAdmin ? 'Admin ★' : isPro ? 'Pro' : 'Free Trial';
+    const planColor     = isPro ? '#7c6fe0' : '#94a3b8';
+    const previewMode   = isAdmin ? _getPreviewMode(user.email) : null;
     const uploadsUsed  = usage.uploads || 0;
     const uploadsLimit = isPro ? null : usage.limit;
     const uploadPct    = uploadsLimit ? Math.min(100, Math.round(uploadsUsed / uploadsLimit * 100)) : 100;
@@ -484,6 +561,32 @@
               <button id="ccSavePw" style="padding:9px 20px;background:#7c6fe0;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">Save New Password</button>
             </div>
           </div>
+          ${isAdmin ? `
+          <div style="background:#0d0b1e;border-radius:12px;padding:18px 20px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+              <span style="font-size:16px;">🧪</span>
+              <span style="color:#e2e8f0;font-size:13px;font-weight:700;">Admin — Preview Mode</span>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:10px;">
+              <button onclick="CC.Auth.setPreviewMode('pro')"
+                style="flex:1;padding:10px 8px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;
+                       border:2px solid ${previewMode === 'pro' ? '#7c6fe0' : 'rgba(255,255,255,0.15)'};
+                       background:${previewMode === 'pro' ? '#7c6fe0' : 'rgba(255,255,255,0.06)'};
+                       color:${previewMode === 'pro' ? '#fff' : '#64748b'};">
+                ${previewMode === 'pro' ? '✓ ' : ''}Pro View
+              </button>
+              <button onclick="CC.Auth.setPreviewMode('free')"
+                style="flex:1;padding:10px 8px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;
+                       border:2px solid ${previewMode === 'free' ? '#f59e0b' : 'rgba(255,255,255,0.15)'};
+                       background:${previewMode === 'free' ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.06)'};
+                       color:${previewMode === 'free' ? '#f59e0b' : '#64748b'};">
+                ${previewMode === 'free' ? '👁 ' : ''}Free View
+              </button>
+            </div>
+            <p style="font-size:11px;color:#475569;margin:0;line-height:1.5;">
+              Toggle to preview exactly what a free-tier user sees — upload limits, row caps, and export restrictions all apply.
+            </p>
+          </div>` : ''}
           <button onclick="CC.Auth.logout()" style="width:100%;padding:12px;border:1.5px solid #fecaca;border-radius:10px;background:#fff;color:#dc2626;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;" onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='#fff'">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             Sign Out
