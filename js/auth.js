@@ -44,9 +44,11 @@
   const lsSet = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 
   // ── Usage / plan helpers ────────────────────────────────────────
-  const ADMIN_EMAILS  = ['speterson1477@gmail.com'];
-  const TRIAL_DAYS    = 7;
-  const TRIAL_MS      = TRIAL_DAYS * 24 * 60 * 60 * 1000;
+  const ADMIN_EMAILS              = ['speterson1477@gmail.com'];
+  const TRIAL_DAYS                = 7;
+  const TRIAL_MS                  = TRIAL_DAYS * 24 * 60 * 60 * 1000;
+  const FREE_PROJECT_LIMIT        = 2;
+  const FREE_UPLOADS_PER_PROJECT  = 4;
 
   function _usageFor(email) {
     const all  = lsGet(LS.USAGE) || {};
@@ -265,6 +267,33 @@
       const user = this.currentUser();
       if (!user) return true;
       return !this.isPro() && !this.isTrialActive();
+    },
+
+    canCreateProject() {
+      if (this.isPro() || this.isTrialActive()) return { allowed: true };
+      const realProjects = (window.App?._realProjects?.() || []);
+      if (realProjects.length >= FREE_PROJECT_LIMIT) {
+        return {
+          allowed: false,
+          reason: `Free accounts are limited to ${FREE_PROJECT_LIMIT} projects. Upgrade to Pro for unlimited projects.`
+        };
+      }
+      return { allowed: true };
+    },
+
+    canUploadToProject(projectId, additionalCount = 1) {
+      if (this.isPro() || this.isTrialActive()) return { allowed: true };
+      const current = (window.App?.scheduleVersions || [])
+        .filter(v => v.projectId === projectId && v.isReal && !v.isDemo).length;
+      const after = current + additionalCount;
+      if (after > FREE_UPLOADS_PER_PROJECT) {
+        const remaining = Math.max(0, FREE_UPLOADS_PER_PROJECT - current);
+        const msg = current >= FREE_UPLOADS_PER_PROJECT
+          ? `Free accounts are limited to ${FREE_UPLOADS_PER_PROJECT} uploads per project. Upgrade to Pro for unlimited uploads.`
+          : `This project has ${current} upload${current !== 1 ? 's' : ''}. Free accounts allow ${FREE_UPLOADS_PER_PROJECT} per project — only ${remaining} more allowed.`;
+        return { allowed: false, reason: msg };
+      }
+      return { allowed: true };
     },
 
     trialDaysLeft() {

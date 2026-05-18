@@ -262,7 +262,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const sel = document.getElementById('uploadProjectSelect');
   const projects = App.projects || [];
 
-  if (projects.length === 0) {
+  const realProjects = projects.filter(p => !p.isDemo);
+
+  if (realProjects.length === 0) {
     const opt = document.createElement('option');
     opt.value = '';
     opt.textContent = 'No existing projects — create one by uploading a file';
@@ -272,18 +274,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('existingLabel').style.opacity = '0.5';
     document.getElementById('existingLabel').style.pointerEvents = 'none';
   } else {
-    projects.forEach(p => {
+    realProjects.forEach(p => {
       const opt = document.createElement('option');
       opt.value = p.id;
-      const versionCount = (App.scheduleVersions || []).filter(v => v.projectId === p.id).length;
-      opt.textContent = `${p.name} (${versionCount} upload${versionCount !== 1 ? 's' : ''})`;
+      const versionCount = (App.scheduleVersions || []).filter(v => v.projectId === p.id && !v.isDemo).length;
+      const atLimit = window.CC?.Auth && !CC.Auth.canUploadToProject(p.id).allowed;
+      opt.textContent = `${p.name} (${versionCount} upload${versionCount !== 1 ? 's' : ''})${atLimit ? ' — upload limit reached' : ''}`;
+      if (atLimit) opt.disabled = true;
       sel.appendChild(opt);
     });
   }
 
+  // Disable "new project" option if free user is at project limit
+  if (window.CC?.Auth && !CC.Auth.canCreateProject().allowed) {
+    const newRadio = document.querySelector('input[name="projectMode"][value="new"]');
+    const newLabel = document.querySelector('label:has(input[value="new"])');
+    if (newRadio) newRadio.disabled = true;
+    if (newLabel) {
+      newLabel.style.opacity = '0.5';
+      newLabel.style.pointerEvents = 'none';
+      newLabel.title = 'Project limit reached — upgrade to Pro to create more projects';
+    }
+    // Force existing mode
+    const existingRadio = document.querySelector('input[name="projectMode"][value="existing"]');
+    if (existingRadio) { existingRadio.checked = true; toggleProjectMode(); }
+  }
+
   // If projectId in URL, auto-select existing mode
   const pid = new URLSearchParams(window.location.search).get('projectId');
-  if (pid && projects.find(p => p.id === pid)) {
+  if (pid && realProjects.find(p => p.id === pid)) {
     document.querySelector('input[name="projectMode"][value="existing"]').checked = true;
     toggleProjectMode();
     sel.value = pid;
@@ -382,23 +401,35 @@ async function startUpload() {
     return;
   }
 
-  // ── Upload quota check ──────────────────────────────────────────
+  // ── Free-tier limit checks ──────────────────────────────────────
   const totalFiles = selectedFiles.length;
-  {
-    const usage = CC.Auth.getUsage();
-    if (usage.plan !== 'pro') {
-      const remaining = Math.max(0, usage.limit - usage.uploads);
-      if (totalFiles > remaining) {
-        const msg = remaining === 0
-          ? `You've used all ${usage.limit} free uploads. Upgrade to Pro for unlimited uploads.`
-          : `You have ${remaining} free upload${remaining === 1 ? '' : 's'} remaining but selected ${totalFiles} file${totalFiles === 1 ? '' : 's'}. Please select fewer files or upgrade to Pro.`;
-        App.showAlert(msg, 'error');
-        CC.showPaywallModal();
+  if (window.CC?.Auth) {
+    if (projectMode !== 'existing') {
+      // Creating a new project — check project count limit
+      const projectCheck = CC.Auth.canCreateProject();
+      if (!projectCheck.allowed) {
+        App.showAlert(projectCheck.reason, 'error');
+        CC.showUpgradeModal('Unlimited projects');
         return;
       }
-      // Consume the quota now (before async work so double-clicks can't sneak through)
-      for (let i = 0; i < totalFiles; i++) CC.Auth.recordUpload();
+      // Multi-file new project: check per-project upload limit
+      const uploadsCheck = CC.Auth.canUploadToProject('__new__', totalFiles);
+      if (!uploadsCheck.allowed && CC.Auth.isFreeRestricted()) {
+        App.showAlert(`Free accounts are limited to 4 uploads per project. Please select 4 or fewer files.`, 'error');
+        CC.showUpgradeModal('Unlimited uploads per project');
+        return;
+      }
+    } else {
+      // Adding to existing project — check per-project upload limit
+      const uploadCheck = CC.Auth.canUploadToProject(projectSelectVal, totalFiles);
+      if (!uploadCheck.allowed) {
+        App.showAlert(uploadCheck.reason, 'error');
+        CC.showUpgradeModal('Unlimited uploads per project');
+        return;
+      }
     }
+    // Track upload count for display purposes
+    for (let i = 0; i < totalFiles; i++) CC.Auth.recordUpload();
   }
 
   document.getElementById('uploadProgress').style.display = 'block';
