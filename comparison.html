@@ -162,8 +162,7 @@
       <div class="tab-list">
         <button class="tab-btn active" data-tab="comp-milestones">Milestones</button>
         <button class="tab-btn" data-tab="comp-activities">Activity Changes</button>
-        <button class="tab-btn" data-tab="comp-float">Float Changes</button>
-        <button class="tab-btn" data-tab="comp-scores">Score Delta</button>
+        <button class="tab-btn" data-tab="comp-float">Float &amp; Scores</button>
         <button class="tab-btn" data-tab="comp-narrative">Narrative</button>
       </div>
 
@@ -260,52 +259,30 @@
         </div>
       </div>
 
-      <!-- FLOAT CHANGES TAB -->
+      <!-- FLOAT & SCORES TAB (merged) -->
       <div class="tab-pane" id="comp-float">
-        <div class="card">
-          <div class="card-header">
-            <h2 class="card-title">Float Distribution Comparison</h2>
-          </div>
-          <div class="chart-container mt-4" style="height:280px;">
-            <div id="floatCompChart" style="width:100%;height:100%;"></div>
-          </div>
-          <div class="float-summary-table mt-6">
-            <table class="data-table">
-              <thead><tr><th>Float Range</th><th>Prior Version</th><th>Current Version</th><th>Delta</th></tr></thead>
-              <tbody>
-                <tr><td>Negative (&lt;0)</td><td>18</td><td class="text-red font-bold">23</td><td class="text-red">+5 ↑</td></tr>
-                <tr><td>Critical (0)</td><td>94</td><td class="text-red font-bold">108</td><td class="text-red">+14 ↑</td></tr>
-                <tr><td>Near-Critical (1–15d)</td><td>142</td><td class="text-amber font-bold">156</td><td class="text-amber">+14 ↑</td></tr>
-                <tr><td>Low Float (16–44d)</td><td>321</td><td>298</td><td class="text-green">-23 ↓</td></tr>
-                <tr><td>High Float (&gt;44d)</td><td>287</td><td>265</td><td class="text-green">-22 ↓</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
 
-      <!-- SCORE DELTA TAB -->
-      <div class="tab-pane" id="comp-scores">
-        <div class="card">
-          <div class="card-header">
-            <h2 class="card-title">Score Category Comparison</h2>
-          </div>
-          <div class="chart-container mt-4" style="height:280px;">
-            <div id="scoreDeltaChart" style="width:100%;height:100%;"></div>
-          </div>
-          <table class="data-table mt-4">
-            <thead><tr><th>Category</th><th>Prior Score</th><th>Current Score</th><th>Delta</th><th>Trend</th></tr></thead>
-            <tbody>
-              <tr><td>Logic Quality</td><td>70</td><td class="text-red">68</td><td class="text-red">-2</td><td>↓</td></tr>
-              <tr><td>Date Integrity</td><td>75</td><td class="text-amber">74</td><td class="text-amber">-1</td><td>↓</td></tr>
-              <tr><td>Constraints &amp; Float</td><td>67</td><td class="text-red">65</td><td class="text-red">-2</td><td>↓</td></tr>
-              <tr><td>Activity Hygiene</td><td>79</td><td class="text-amber">78</td><td class="text-amber">-1</td><td>↓</td></tr>
-              <tr><td>Progress Realism</td><td>72</td><td class="text-amber">71</td><td class="text-amber">-1</td><td>↓</td></tr>
-              <tr><td>Critical Path Reliability</td><td>70</td><td class="text-red">69</td><td class="text-red">-1</td><td>↓</td></tr>
-              <tr class="total-row"><td><strong>Overall</strong></td><td><strong>72</strong></td><td class="text-amber font-bold">71</td><td class="text-amber">-1</td><td>↓</td></tr>
-            </tbody>
-          </table>
+        <!-- Score Category Comparison -->
+        <div class="card mb-4">
+          <h2 class="card-title mb-1">Score Category Comparison</h2>
+          <p style="font-size:13px;color:#94a3b8;margin:0 0 20px;">How each scoring category changed between versions</p>
+          <div id="scoreDeltaGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;"></div>
+          <div id="scoreDeltaOverall" class="mt-4"></div>
         </div>
+
+        <!-- Float Distribution -->
+        <div class="card">
+          <h2 class="card-title mb-1">Float Distribution</h2>
+          <p style="font-size:13px;color:#94a3b8;margin:0 0 20px;">Activity counts by float bracket — prior vs. current</p>
+          <div style="display:grid;grid-template-columns:180px 1fr 1fr 90px;gap:12px;padding-bottom:10px;border-bottom:2px solid #e2e8f0;margin-bottom:4px;">
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Float Range</div>
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Prior</div>
+            <div style="font-size:11px;font-weight:700;color:#7c6fe0;text-transform:uppercase;letter-spacing:0.05em;">Current</div>
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;text-align:right;">Delta</div>
+          </div>
+          <div id="floatCompDisplay"></div>
+        </div>
+
       </div>
 
       <!-- NARRATIVE TAB -->
@@ -397,9 +374,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Re-render charts when their tab becomes visible (charts fail at 0-width)
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const tab = btn.dataset.tab;
-      if (tab === 'comp-float')  setTimeout(renderFloatChart,      50);
-      if (tab === 'comp-scores') setTimeout(renderScoreDeltaChart, 50);
+      if (btn.dataset.tab === 'comp-float') renderAnalysisTab();
     });
   });
 
@@ -451,13 +426,8 @@ function runComparison() {
   renderActivityChanges();
   renderNarrative();
 
-  // Charts only render correctly when their tab is visible — render the active one now
-  const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
-  if (activeTab === 'comp-float')  renderFloatChart();
-  if (activeTab === 'comp-scores') renderScoreDeltaChart();
-  // Always pre-render score delta (it's often the first chart users click)
-  setTimeout(renderFloatChart,      80);
-  setTimeout(renderScoreDeltaChart, 80);
+  // Pure CSS/HTML — no DOM dimension dependency, always safe to render
+  renderAnalysisTab();
 
   App.showAlert(`Comparing ${_v1.version} vs ${_v2.version}`, 'success');
 }
@@ -933,122 +903,138 @@ function _doRenderActivityTree(tbody, changes, hasFilters) {
   tbody.innerHTML = rows.join('');
 }
 
-// ── Float Distribution Chart ──────────────────────────────────
-function renderFloatChart() {
-  const container = document.getElementById('floatCompChart');
-  if (!container || !window.Plot) return;
+// ── Score Category Cards (pure CSS — no library dependency) ───
+function renderScoreDeltaCards() {
+  const grid    = document.getElementById('scoreDeltaGrid');
+  const overall = document.getElementById('scoreDeltaOverall');
+  if (!grid || !_v1 || !_v2) return;
+
+  const CAT_KEYS   = ['logicQuality','dateIntegrity','constraintsFloat','activityHygiene','progressRealism','criticalPathReliability'];
+  const CAT_LABELS = ['Logic Quality','Date Integrity','Constraints & Float','Activity Hygiene','Progress Realism','Critical Path'];
+  const CAT_COLORS = ['#7c6fe0','#0ea5e9','#f59e0b','#10b981','#f97316','#ef4444'];
+
+  const ragColor = s => s == null ? '#94a3b8' : s >= 85 ? '#16a34a' : s >= 70 ? '#d97706' : '#dc2626';
+  const ragBg    = s => s == null ? '#f8fafc' : s >= 85 ? '#f0fdf4' : s >= 70 ? '#fffbeb' : '#fef2f2';
+
+  grid.innerHTML = CAT_KEYS.map((k, i) => {
+    const p = catScore(_v1, k);
+    const c = catScore(_v2, k);
+    const d = (p != null && c != null) ? c - p : null;
+    const dColor = d == null ? '#94a3b8' : d < 0 ? '#dc2626' : d > 0 ? '#16a34a' : '#94a3b8';
+    const color  = CAT_COLORS[i];
+    return `
+      <div style="background:${ragBg(c)};border-radius:10px;padding:14px 16px;border:1px solid ${ragColor(c)}33;">
+        <div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px;">${CAT_LABELS[i]}</div>
+        <div style="margin-bottom:7px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+            <span style="font-size:11px;color:#94a3b8;">Prior</span>
+            <span style="font-size:12px;color:#94a3b8;font-weight:600;">${p ?? '—'}</span>
+          </div>
+          <div style="background:#e2e8f0;border-radius:3px;height:6px;overflow:hidden;">
+            <div style="width:${p ?? 0}%;background:#94a3b8;height:100%;border-radius:3px;"></div>
+          </div>
+        </div>
+        <div style="margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+            <span style="font-size:11px;color:#374151;font-weight:600;">Current</span>
+            <span style="font-size:17px;font-weight:800;color:${ragColor(c)};">${c ?? '—'}</span>
+          </div>
+          <div style="background:#e2e8f0;border-radius:3px;height:8px;overflow:hidden;">
+            <div style="width:${c ?? 0}%;background:${color};height:100%;border-radius:3px;"></div>
+          </div>
+        </div>
+        <div style="border-top:1px solid ${ragColor(c)}33;padding-top:8px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:11px;color:#64748b;">Change</span>
+          <span style="font-size:13px;font-weight:700;color:${dColor};">${d == null ? '—' : (d > 0 ? '+' : '') + d + ' ' + (d < 0 ? '↓' : d > 0 ? '↑' : '–')}</span>
+        </div>
+      </div>`;
+  }).join('');
+
+  if (overall) {
+    const p = _v1.overallScore ?? 0;
+    const c = _v2.overallScore ?? 0;
+    const d = c - p;
+    const dColor  = d < 0 ? '#dc2626' : d > 0 ? '#16a34a' : '#94a3b8';
+    const cColor  = ragColor(c);
+    overall.innerHTML = `
+      <div style="background:#1e1b4b;border-radius:12px;padding:18px 22px;display:flex;align-items:center;gap:28px;">
+        <div style="flex-shrink:0;">
+          <div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Overall Score</div>
+          <div style="display:flex;align-items:baseline;gap:12px;">
+            <span style="font-size:15px;color:#94a3b8;">${p}</span>
+            <span style="font-size:34px;font-weight:900;color:${cColor};line-height:1;">${c}</span>
+            <span style="font-size:16px;font-weight:700;color:${dColor};">${d > 0 ? '+' : ''}${d} ${d < 0 ? '↓' : d > 0 ? '↑' : '–'}</span>
+          </div>
+        </div>
+        <div style="flex:1;">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;margin-bottom:4px;"><span>Prior</span><span>${p}/100</span></div>
+          <div style="background:rgba(255,255,255,0.12);border-radius:4px;height:10px;overflow:hidden;margin-bottom:8px;">
+            <div style="width:${p}%;background:#94a3b8;height:100%;border-radius:4px;"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:${cColor};margin-bottom:4px;"><span>Current</span><span>${c}/100</span></div>
+          <div style="background:rgba(255,255,255,0.12);border-radius:4px;height:10px;overflow:hidden;">
+            <div style="width:${c}%;background:${cColor};height:100%;border-radius:4px;"></div>
+          </div>
+        </div>
+      </div>`;
+  }
+}
+
+// ── Float Distribution Bars (pure CSS — no library dependency) ─
+function renderFloatBars() {
+  const container = document.getElementById('floatCompDisplay');
+  if (!container || !_v1 || !_v2) return;
 
   const b1 = floatBuckets(_v1);
   const b2 = floatBuckets(_v2);
 
   const cats = [
-    { label: 'Negative (<0)',    p: b1.negative,    c: b2.negative    },
-    { label: 'Critical (0d)',    p: b1.critical,    c: b2.critical    },
-    { label: 'Near-Crit (1–15d)',p: b1.nearCritical,c: b2.nearCritical},
-    { label: 'Low Float (16–44d)',p:b1.lowFloat,    c: b2.lowFloat    },
-    { label: 'High Float (>44d)',p: b1.highFloat,   c: b2.highFloat   },
+    { label: 'Negative Float', sub: '< 0 days',   color: '#dc2626', bad: true,  p: b1.negative,     c: b2.negative    },
+    { label: 'Critical (0d)',  sub: '0 days',      color: '#f97316', bad: true,  p: b1.critical,     c: b2.critical    },
+    { label: 'Near-Critical',  sub: '1–15 days',   color: '#f59e0b', bad: true,  p: b1.nearCritical, c: b2.nearCritical },
+    { label: 'Low Float',      sub: '16–44 days',  color: '#0ea5e9', bad: false, p: b1.lowFloat,     c: b2.lowFloat    },
+    { label: 'High Float',     sub: '> 44 days',   color: '#10b981', bad: false, p: b1.highFloat,    c: b2.highFloat   },
   ];
 
-  const data = cats.flatMap(row => [
-    { label: row.label, version: _v1.version, count: row.p },
-    { label: row.label, version: _v2.version, count: row.c }
-  ]);
+  const maxVal = Math.max(...cats.flatMap(r => [r.p, r.c]), 1);
 
-  const w = container.closest('.chart-container')?.offsetWidth || container.parentElement?.offsetWidth || 640;
-  container.innerHTML = '';
-  container.appendChild(Plot.plot({
-    width: w - 32,
-    height: 240,
-    marginBottom: 40,
-    marginLeft: 50,
-    style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
-    color: { legend: true, domain: [_v1.version, _v2.version], range: ['#94a3b8', '#7c6fe0'] },
-    fx: { label: null, padding: 0.2 },
-    x:  { axis: null },
-    y:  { label: 'Activities', grid: true, zero: true },
-    marks: [
-      Plot.barY(data, { fx: 'label', x: 'version', y: 'count', fill: 'version', rx: 3, tip: true }),
-      Plot.ruleY([0])
-    ]
-  }));
-
-  // Update float table
-  const floatTbody = document.querySelector('.float-summary-table tbody');
-  if (floatTbody) {
-    floatTbody.innerHTML = cats.map(row => {
-      const d = row.c - row.p;
-      const cls = d > 0 ? 'text-red' : d < 0 ? 'text-green' : 'text-secondary';
-      return `<tr>
-        <td>${row.label}</td>
-        <td>${row.p}</td>
-        <td class="${d !== 0 ? cls + ' font-bold' : ''}">${row.c}</td>
-        <td class="${cls}">${d > 0 ? '+' : ''}${d} ${d > 0 ? '↑' : d < 0 ? '↓' : '–'}</td>
-      </tr>`;
-    }).join('');
-  }
+  container.innerHTML = cats.map(row => {
+    const d      = row.c - row.p;
+    const dColor = d === 0 ? '#94a3b8' : (d > 0 === row.bad) ? '#dc2626' : '#16a34a';
+    const pPct   = Math.round((row.p / maxVal) * 100);
+    const cPct   = Math.round((row.c / maxVal) * 100);
+    return `
+      <div style="display:grid;grid-template-columns:180px 1fr 1fr 90px;gap:16px;align-items:center;padding:12px 0;border-bottom:1px solid #f1f5f9;">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:#1e1b4b;display:flex;align-items:center;gap:7px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:${row.color};display:inline-block;flex-shrink:0;"></span>
+            ${row.label}
+          </div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:2px;padding-left:15px;">${row.sub}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="flex:1;background:#f1f5f9;border-radius:3px;height:8px;overflow:hidden;">
+            <div style="width:${pPct}%;background:#94a3b8;height:100%;border-radius:3px;"></div>
+          </div>
+          <span style="font-size:13px;color:#94a3b8;font-weight:600;min-width:34px;text-align:right;">${row.p.toLocaleString()}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="flex:1;background:#f1f5f9;border-radius:3px;height:8px;overflow:hidden;">
+            <div style="width:${cPct}%;background:${row.color};height:100%;border-radius:3px;"></div>
+          </div>
+          <span style="font-size:13px;color:#1e1b4b;font-weight:700;min-width:34px;text-align:right;">${row.c.toLocaleString()}</span>
+        </div>
+        <div style="text-align:right;">
+          <span style="font-size:13px;font-weight:700;color:${dColor};">${d > 0 ? '+' : ''}${d} ${d > 0 ? '↑' : d < 0 ? '↓' : '–'}</span>
+        </div>
+      </div>`;
+  }).join('');
 }
 
-// ── Score Delta Chart ─────────────────────────────────────────
-function renderScoreDeltaChart() {
-  const container = document.getElementById('scoreDeltaChart');
-  if (!container || !window.Plot) return;
-
-  const catKeys   = ['logicQuality','dateIntegrity','constraintsFloat','activityHygiene','progressRealism','criticalPathReliability'];
-  const catLabels = ['Logic','Date Integrity','Constraints','Activity Hygiene','Progress','Critical Path'];
-
-  const data = catKeys.flatMap((k, i) => [
-    { category: catLabels[i], version: _v1.version, score: catScore(_v1, k) ?? 0 },
-    { category: catLabels[i], version: _v2.version, score: catScore(_v2, k) ?? 0 }
-  ]);
-
-  const allScores = data.map(d => d.score).filter(s => s > 0);
-  const minY = allScores.length ? Math.max(0, Math.min(...allScores) - 10) : 0;
-
-  const w = container.closest('.chart-container')?.offsetWidth || container.parentElement?.offsetWidth || 640;
-  container.innerHTML = '';
-  container.appendChild(Plot.plot({
-    width: w - 32,
-    height: 240,
-    marginBottom: 40,
-    marginLeft: 50,
-    style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
-    color: { legend: true, domain: [_v1.version, _v2.version], range: ['#94a3b8', '#0ea5e9'] },
-    fx: { label: null, padding: 0.2 },
-    x:  { axis: null },
-    y:  { domain: [minY, 100], label: 'Score', grid: true },
-    marks: [
-      Plot.barY(data, { fx: 'category', x: 'version', y: 'score', fill: 'version', rx: 3, tip: true }),
-      Plot.ruleY([0])
-    ]
-  }));
-
-  // Update score table
-  const scoreTbody = document.querySelector('#comp-scores .data-table tbody');
-  if (scoreTbody) {
-    const rows = catKeys.map((k, i) => {
-      const p = catScore(_v1, k);
-      const c = catScore(_v2, k);
-      const d = (p !== null && c !== null) ? c - p : null;
-      const cls = d !== null ? (d < 0 ? 'text-red' : d > 0 ? 'text-green' : 'text-secondary') : '';
-      return `<tr>
-        <td>${catLabels[i]}</td>
-        <td>${p ?? '—'}</td>
-        <td class="${cls}">${c ?? '—'}</td>
-        <td class="${cls}">${d !== null ? (d > 0 ? '+' : '') + d : '—'}</td>
-        <td>${d !== null ? (d < 0 ? '↓' : d > 0 ? '↑' : '–') : '—'}</td>
-      </tr>`;
-    });
-    const ovrDelta = (_v2.overallScore || 0) - (_v1.overallScore || 0);
-    const ovrCls   = ovrDelta < 0 ? 'text-red' : ovrDelta > 0 ? 'text-green' : 'text-secondary';
-    rows.push(`<tr class="total-row">
-      <td><strong>Overall</strong></td>
-      <td><strong>${_v1.overallScore}</strong></td>
-      <td class="${ovrCls} font-bold">${_v2.overallScore}</td>
-      <td class="${ovrCls}">${ovrDelta > 0 ? '+' : ''}${ovrDelta}</td>
-      <td>${ovrDelta < 0 ? '↓' : ovrDelta > 0 ? '↑' : '–'}</td>
-    </tr>`);
-    scoreTbody.innerHTML = rows.join('');
-  }
+// ── Combined render for the merged Float & Scores tab ─────────
+function renderAnalysisTab() {
+  renderScoreDeltaCards();
+  renderFloatBars();
 }
 
 // ── Narrative ────────────────────────────────────────────────
