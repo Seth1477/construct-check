@@ -483,9 +483,6 @@
     const initials = parts.length > 1
       ? parts[0][0].toUpperCase() + parts[parts.length - 1][0].toUpperCase()
       : user.name.slice(0, 2).toUpperCase();
-    const syncBadge = SB_OK
-      ? '<span style="background:#e8f5e9;color:#2e7d32;border-radius:5px;padding:2px 8px;font-size:10px;font-weight:700;margin-left:6px;">⚡ Cloud Sync ON</span>'
-      : '<span style="background:#fff8e1;color:#f57f17;border-radius:5px;padding:2px 8px;font-size:10px;font-weight:700;margin-left:6px;">⚠ Local Storage Only</span>';
 
     const overlay = document.createElement('div');
     overlay.id = 'cc-account-panel';
@@ -502,7 +499,6 @@
               <div style="font-size:13px;color:#94a3b8;">${user.email}</div>
               <div style="margin-top:6px;">
                 <span style="background:${planColor}22;color:${planColor};border:1px solid ${planColor}55;border-radius:6px;padding:2px 10px;font-size:11px;font-weight:700;text-transform:uppercase;">${planLabel}</span>
-                ${syncBadge}
               </div>
             </div>
           </div>
@@ -522,11 +518,6 @@
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <span style="font-size:13px;color:#64748b;font-weight:500;">Member since</span>
               <span style="font-size:13px;font-weight:600;color:#1e293b;">${joined}</span>
-            </div>
-            <div style="height:1px;background:#e2e8f0;"></div>
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-              <span style="font-size:13px;color:#64748b;font-weight:500;">Auth mode</span>
-              <span style="font-size:13px;font-weight:600;color:${SB_OK ? '#2e7d32' : '#f57f17'};">${SB_OK ? 'Supabase (cross-device)' : 'Local storage only'}</span>
             </div>
           </div>
           <div>
