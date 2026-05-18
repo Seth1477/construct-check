@@ -74,10 +74,10 @@
 
   // ─── CONFIG — fill these in after EmailJS setup ──────────────────────────
   const CFG = {
-    ejsPublicKey : '',                       // emailjs.com → Account → Public Key
-    ejsServiceId : '',                       // e.g. 'service_abc123'
-    ejsAdminTpl  : '',                       // e.g. 'template_abc123'
-    ejsUserTpl   : '',                       // e.g. 'template_xyz789'
+    ejsPublicKey : 'P6TWXAd0RXTm8EYRC',
+    ejsServiceId : 'service_far0y0p',
+    ejsAdminTpl  : 'template_2mbkewo',
+    ejsUserTpl   : 'template_vb46un6',
     adminEmail   : 'constructcheck@gmail.com',
     sbBucket     : 'support-screenshots',
   };
