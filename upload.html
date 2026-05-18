@@ -53,10 +53,10 @@
 
     <div class="sidebar-bottom">
       <div class="sidebar-user">
-        <div class="user-avatar">S</div>
+        <div class="user-avatar" id="userAvatarInitial">–</div>
         <div class="user-info">
-          <div class="user-name">Seth Peterson</div>
-          <div class="user-role">Project Admin</div>
+          <div class="user-name" data-auth-name>Loading…</div>
+          <div class="user-role" data-auth-plan>Free</div>
         </div>
       </div>
     </div>
@@ -382,11 +382,29 @@ async function startUpload() {
     return;
   }
 
+  // ── Upload quota check ──────────────────────────────────────────
+  const totalFiles = selectedFiles.length;
+  {
+    const usage = CC.Auth.getUsage();
+    if (usage.plan !== 'pro') {
+      const remaining = Math.max(0, usage.limit - usage.uploads);
+      if (totalFiles > remaining) {
+        const msg = remaining === 0
+          ? `You've used all ${usage.limit} free uploads. Upgrade to Pro for unlimited uploads.`
+          : `You have ${remaining} free upload${remaining === 1 ? '' : 's'} remaining but selected ${totalFiles} file${totalFiles === 1 ? '' : 's'}. Please select fewer files or upgrade to Pro.`;
+        App.showAlert(msg, 'error');
+        CC.showPaywallModal();
+        return;
+      }
+      // Consume the quota now (before async work so double-clicks can't sneak through)
+      for (let i = 0; i < totalFiles; i++) CC.Auth.recordUpload();
+    }
+  }
+
   document.getElementById('uploadProgress').style.display = 'block';
   document.getElementById('uploadBtn').disabled = true;
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
-  const totalFiles = selectedFiles.length;
 
   const readFileAsText = file => new Promise((res, rej) => {
     const r = new FileReader();
