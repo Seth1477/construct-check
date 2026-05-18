@@ -196,6 +196,74 @@ const BATCAVE_WBS = [
 ];
 
 // ─────────────────────────────────────────────────────────────
+// ACTIVITY BASELINE  — fixed codes & names shared across all 7 versions
+// so Activity Changes shows real variances between any two picks
+// ─────────────────────────────────────────────────────────────
+const BATCAVE_ACT_BASE = [
+  // ── Construction Milestones (wbs-constr) ─────────────────
+  {id:'BC_1010',name:'Excavate Cave Level 4 – North Face',          wbsId:'wbs-constr',   s:'2024-05-15',f:'2024-07-20',tf:45},
+  {id:'BC_1020',name:'Excavate Cave Level 4 – South Face',          wbsId:'wbs-constr',   s:'2024-06-01',f:'2024-08-15',tf:38},
+  {id:'BC_1030',name:'Rock Anchor Installation – Level 4',          wbsId:'wbs-constr',   s:'2024-07-15',f:'2024-09-05',tf:32},
+  {id:'BC_1040',name:'Blast-Proof Partition – North Wing',          wbsId:'wbs-constr',   s:'2024-08-01',f:'2024-09-20',tf:28},
+  {id:'BC_1050',name:'Shotcrete Placement – Level 5',               wbsId:'wbs-constr',   s:'2024-09-01',f:'2024-10-15',tf:22},
+  {id:'BC_1060',name:'Steel Erection – Main Frame L4–L6',           wbsId:'wbs-constr',   s:'2024-09-15',f:'2024-11-30',tf:18},
+  {id:'BC_1070',name:'Structural Inspection – Levels 4–6',          wbsId:'wbs-constr',   s:'2024-12-01',f:'2024-12-15',tf:14},
+  {id:'BC_1080',name:'Blast Door Installation – Level 4 Entry',     wbsId:'wbs-constr',   s:'2024-12-01',f:'2025-01-10',tf:10},
+  {id:'BC_1090',name:'Utility Tunneling – East–West Corridor',      wbsId:'wbs-constr',   s:'2024-10-15',f:'2025-01-31',tf:12},
+  {id:'BC_1100',name:'Waterproofing System – Levels 4–6',           wbsId:'wbs-constr',   s:'2025-01-15',f:'2025-03-01',tf:8 },
+  {id:'BC_1110',name:'Drainage Installation – Sump Systems',        wbsId:'wbs-constr',   s:'2025-02-01',f:'2025-03-15',tf:6 },
+  {id:'BC_1120',name:'Cave Wall Treatment – Levels 4–6',            wbsId:'wbs-constr',   s:'2025-03-01',f:'2025-04-30',tf:5 },
+  // ── Contract Key Dates (wbs-contract) ────────────────────
+  {id:'BC_2010',name:'Primary Power Grid – Cable Pull L4–L6',       wbsId:'wbs-contract', s:'2024-08-15',f:'2024-10-31',tf:40},
+  {id:'BC_2020',name:'Primary Power Grid – Transformer Install',    wbsId:'wbs-contract', s:'2024-11-01',f:'2024-12-20',tf:35},
+  {id:'BC_2030',name:'Primary Power Grid – HV Switchgear',          wbsId:'wbs-contract', s:'2024-12-15',f:'2025-02-15',tf:30},
+  {id:'BC_2040',name:'Primary Power Grid – Energisation & Test',    wbsId:'wbs-contract', s:'2025-03-01',f:'2025-04-30',tf:25},
+  {id:'BC_2050',name:'Batmobile Vault – Slab Pour',                 wbsId:'wbs-contract', s:'2025-01-15',f:'2025-02-28',tf:55},
+  {id:'BC_2060',name:'Batmobile Vault – Structural Steel Frame',    wbsId:'wbs-contract', s:'2025-02-15',f:'2025-04-30',tf:48},
+  {id:'BC_2070',name:'Batmobile Vault – Blast Door Erection',       wbsId:'wbs-contract', s:'2025-04-15',f:'2025-06-15',tf:38},
+  {id:'BC_2080',name:'Batmobile Vault – Turntable Install',         wbsId:'wbs-contract', s:'2025-06-01',f:'2025-07-31',tf:32},
+  {id:'BC_2090',name:'Batmobile Vault – Systems Integration Test',  wbsId:'wbs-contract', s:'2025-07-15',f:'2025-08-31',tf:25},
+  {id:'BC_2100',name:'Computer Core – Raised Floor & Rack Install', wbsId:'wbs-contract', s:'2025-03-15',f:'2025-05-31',tf:60},
+  {id:'BC_2110',name:'Computer Core – Power Conduit Rough-in',      wbsId:'wbs-contract', s:'2025-04-01',f:'2025-05-15',tf:55},
+  {id:'BC_2120',name:'Computer Core – UPS System Commission',       wbsId:'wbs-contract', s:'2025-06-01',f:'2025-07-15',tf:45},
+  {id:'BC_2130',name:'Computer Core – Thermal Runaway Test',        wbsId:'wbs-contract', s:'2025-07-01',f:'2025-07-15',tf:42},
+  {id:'BC_2140',name:'Computer Core – Final Commissioning',         wbsId:'wbs-contract', s:'2025-08-01',f:'2025-09-30',tf:38},
+  {id:'BC_2150',name:'Emergency Generator – Install & Test',        wbsId:'wbs-contract', s:'2025-05-15',f:'2025-07-31',tf:50},
+  {id:'BC_2160',name:'Access Control – Biometric System Install',   wbsId:'wbs-contract', s:'2025-08-01',f:'2025-09-30',tf:35},
+  // ── Technology & Commissioning (wbs-tech) ────────────────
+  {id:'BC_3010',name:'Medical Bay – Surgical Suite Fit-Out',        wbsId:'wbs-tech',     s:'2025-06-01',f:'2025-08-31',tf:80},
+  {id:'BC_3020',name:'Medical Bay – Medical Equipment Install',     wbsId:'wbs-tech',     s:'2025-08-15',f:'2025-10-15',tf:72},
+  {id:'BC_3030',name:'Medical Bay – Commissioning & Test',          wbsId:'wbs-tech',     s:'2025-10-01',f:'2025-11-15',tf:65},
+  {id:'BC_3040',name:'Tactical Display – Assembly & Wiring',        wbsId:'wbs-tech',     s:'2025-07-15',f:'2025-09-30',tf:58},
+  {id:'BC_3050',name:'Communications – Backup System Install',      wbsId:'wbs-tech',     s:'2025-09-01',f:'2025-10-31',tf:50},
+  {id:'BC_3060',name:'Climate Control – Calibration & Test',        wbsId:'wbs-tech',     s:'2025-10-01',f:'2025-11-30',tf:42},
+  {id:'BC_3070',name:'Security Scanning – Install & Commission',    wbsId:'wbs-tech',     s:'2025-10-15',f:'2025-12-15',tf:35},
+  {id:'BC_3080',name:'Bat-Signal Mounting – Roof Integration',      wbsId:'wbs-tech',     s:'2025-11-01',f:'2025-12-15',tf:28},
+  // ── Wayne Enterprises Systems (wbs-wayne) ─────────────────
+  {id:'BC_4010',name:'Wayne Tech Integration – Phase 1 Handover',  wbsId:'wbs-wayne',    s:'2025-09-15',f:'2025-10-15',tf:40},
+  {id:'BC_4020',name:'Wayne Tech Integration – Phase 2 Network',   wbsId:'wbs-wayne',    s:'2025-10-01',f:'2025-11-30',tf:35},
+  {id:'BC_4030',name:'Wayne Tech – System-Wide Acceptance Test',   wbsId:'wbs-wayne',    s:'2025-12-01',f:'2025-12-31',tf:25},
+  {id:'BC_4040',name:'Wayne Tech – Beneficial Occupancy Prep',     wbsId:'wbs-wayne',    s:'2026-01-01',f:'2026-02-28',tf:18},
+];
+
+// Apply slippage to base activities: slips = {wbsId: baseDays}, tweaks = per-activity fine-tune array
+function _slipActs(slips, tweaks) {
+  const _add = (ds, d) => {
+    if (!ds || !d) return ds;
+    const dt = new Date(ds); dt.setDate(dt.getDate() + d); return dt.toISOString().slice(0, 10);
+  };
+  return BATCAVE_ACT_BASE.map((a, i) => {
+    const d = (slips[a.wbsId] || 0) + (tweaks ? (tweaks[i % tweaks.length] || 0) : 0);
+    return {
+      id: a.id, code: a.id, name: a.name, wbsId: a.wbsId,
+      earlyStart:  _add(a.s, d), earlyFinish: _add(a.f, d),
+      totalFloat:  Math.max(-20, a.tf - d),
+      status: 'TK_NotStart', isCritical: (a.tf - d) <= 2, type: 'TT_Task'
+    };
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
 // SCHEDULE VERSIONS  (isDemo:true + isReal:true so comparison works)
 // ─────────────────────────────────────────────────────────────
 const DEMO_SCHEDULE_VERSIONS = [
@@ -253,7 +321,7 @@ const DEMO_SCHEDULE_VERSIONS = [
         criticalCount:critCount, negativeFloatCount:negFloat,
         milestoneCount:msCount, dataDate:'2024-05-01'
       },
-      activityLookup:_mkActs('vb1',[35,42,28,51,67,33,41,19,45,38,29,55,71,22,48,36,44,30,58,47,62,25,39,53,31,64,43,56,77,28,41,35,60,48,23,37,52,44,33,68,21,47,56,39,29,43,71,25,38,55,19,46,32,61,44,37,50,27,43,34]),
+      activityLookup:_slipActs({}, []),
       wbsLookup: BATCAVE_WBS,
       milestones
     };
@@ -311,7 +379,7 @@ const DEMO_SCHEDULE_VERSIONS = [
         criticalCount:critCount, negativeFloatCount:negFloat,
         milestoneCount:msCount, dataDate:'2024-08-01'
       },
-      activityLookup:_mkActs('vb2',[31,38,24,47,63,29,37,16,41,34,25,51,67,18,44,32,40,26,54,43,59,21,35,49,27,60,39,52,73,24,37,31,56,44,19,33,48,40,29,64,17,43,52,35,25,39,67,21,34,51,15,42,28,57,40,33,46,23,39,30]),
+      activityLookup:_slipActs({'wbs-constr':8,'wbs-contract':5,'wbs-tech':0,'wbs-wayne':0},[3,-2,5,0,4,-1,3,2,0,-3,4,2,3,-1,4,0,2,3,-2,0,1,3,-1,2,0,3,-2,1,4,0,-1,2,3,0,-1,2,0,1,-2,3]),
       wbsLookup: BATCAVE_WBS,
       milestones
     };
@@ -369,7 +437,7 @@ const DEMO_SCHEDULE_VERSIONS = [
         criticalCount:critCount, negativeFloatCount:negFloat,
         milestoneCount:msCount, dataDate:'2024-11-01'
       },
-      activityLookup:_mkActs('vb3',[22,30,17,41,56,23,31,10,35,27,19,45,60,13,38,25,33,19,48,36,52,15,28,43,21,54,32,46,67,18,30,24,49,37,13,27,41,33,22,57,11,36,45,28,18,32,60,14,27,44,9,35,21,50,33,26,39,17,32,23]),
+      activityLookup:_slipActs({'wbs-constr':20,'wbs-contract':15,'wbs-tech':8,'wbs-wayne':5},[5,-3,8,2,6,-2,4,7,0,-4,6,3,5,-2,7,1,4,5,-3,1,3,5,-2,4,1,5,-3,2,6,0,-2,3,5,1,-2,3,0,2,-3,4]),
       wbsLookup: BATCAVE_WBS,
       milestones
     };
@@ -427,7 +495,7 @@ const DEMO_SCHEDULE_VERSIONS = [
         criticalCount:critCount, negativeFloatCount:negFloat,
         milestoneCount:msCount, dataDate:'2025-02-01'
       },
-      activityLookup:_mkActs('vb4',[3,7,1,12,5,18,8,22,2,6,9,16,1,4,8,21,25,30,17,11,13,34,19,38,23,16,10,26,31,43,8,14,5,24,20,11,33,27,15,19,7,30,42,17,9,23,38,13,26,21,8,35,18,44,31,14,25,10,20,16]),
+      activityLookup:_slipActs({'wbs-constr':38,'wbs-contract':42,'wbs-tech':22,'wbs-wayne':18},[8,-4,12,3,9,-3,6,10,1,-6,9,5,8,-3,11,2,7,8,-5,2,5,8,-3,6,2,8,-5,3,10,0,-3,5,8,2,-3,5,0,3,-5,6]),
       wbsLookup: BATCAVE_WBS,
       milestones
     };
@@ -485,7 +553,7 @@ const DEMO_SCHEDULE_VERSIONS = [
         criticalCount:critCount, negativeFloatCount:negFloat,
         milestoneCount:msCount, dataDate:'2025-05-01'
       },
-      activityLookup:_mkActs('vb5',[-8,-5,-12,-3,-7,-1,-9,-4,-6,-11,-2,0,1,-3,-6,0,-1,2,3,4,5,3,6,7,4,2,8,5,3,6,1,0,-1,7,5,3,2,1,0,10,13,16,9,12,14,7,11,8,15,18,22,19,15,21,16,18,20,13,11,-2]),
+      activityLookup:_slipActs({'wbs-constr':58,'wbs-contract':72,'wbs-tech':38,'wbs-wayne':28},[10,-5,15,4,12,-4,8,14,2,-8,12,7,10,-4,14,3,9,11,-6,3,7,11,-4,8,3,11,-7,4,14,0,-4,7,11,3,-4,7,0,4,-7,8]),
       wbsLookup: BATCAVE_WBS,
       milestones
     };
@@ -543,7 +611,7 @@ const DEMO_SCHEDULE_VERSIONS = [
         criticalCount:critCount, negativeFloatCount:negFloat,
         milestoneCount:msCount, dataDate:'2025-08-01'
       },
-      activityLookup:_mkActs('vb6',[-3,-1,0,1,2,4,6,8,3,5,7,9,2,11,13,16,11,14,18,21,24,17,20,23,15,12,19,22,26,30,34,37,28,32,35,-1,0,2,4,5,3,7,4,6,14,17,11,21,18,25,27,31,23,16,20,28,35,39,13,8]),
+      activityLookup:_slipActs({'wbs-constr':50,'wbs-contract':62,'wbs-tech':32,'wbs-wayne':24},[8,-4,13,3,10,-4,7,12,1,-7,10,6,9,-3,12,2,8,9,-5,2,6,9,-3,7,2,9,-6,3,12,0,-3,6,9,2,-3,6,0,3,-6,7]),
       wbsLookup: BATCAVE_WBS,
       milestones
     };
@@ -601,7 +669,7 @@ const DEMO_SCHEDULE_VERSIONS = [
         criticalCount:critCount, negativeFloatCount:negFloat,
         milestoneCount:msCount, dataDate:'2025-11-01'
       },
-      activityLookup:_mkActs('vb7',[-1,0,1,3,5,7,9,2,4,6,8,11,13,16,11,14,18,21,24,17,27,20,23,26,15,12,19,30,34,37,41,28,32,35,38,25,31,43,47,51,36,40,44,33,46,50,39,42,45,48,52,55,29,43,37,41,34,49,35,21]),
+      activityLookup:_slipActs({'wbs-constr':42,'wbs-contract':54,'wbs-tech':26,'wbs-wayne':20},[7,-3,11,2,8,-3,5,10,1,-6,8,5,7,-2,10,1,6,7,-4,1,4,7,-2,5,1,7,-4,2,10,0,-2,4,7,1,-2,4,0,2,-4,5]),
       wbsLookup: BATCAVE_WBS,
       milestones
     };
