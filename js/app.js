@@ -525,8 +525,16 @@ const App = {
   // ─── Project Resolution ──────────────────────────────────────
   _resolveCurrentProject() {
     const urlProjectId = this.getQueryParam('projectId');
+
+    // Stored ID should not silently default to a demo project when real projects exist
+    const storedId = this._loadCurrentProjectId();
+    const storedIsDemo = storedId ? !!this.projects.find(p => p.id === storedId)?.isDemo : false;
+    const hasRealProjects = this.projects.some(p => !p.isDemo);
+    // Skip stored ID if it belongs to a demo project and real projects are available
+    const effectiveStoredId = (storedIsDemo && hasRealProjects) ? null : storedId;
+
     const projectId = urlProjectId
-      || this._loadCurrentProjectId()
+      || effectiveStoredId
       || this.projects.find(p => !p.isDemo)?.id
       || this.projects[0]?.id;
 
