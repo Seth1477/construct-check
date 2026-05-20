@@ -323,18 +323,127 @@
     .footer-links a:hover { color: #a593f5; }
     .footer-copy { font-size: 13px; color: #475569; }
 
+    /* ── TABLET (≤ 768px) ── */
     @media (max-width: 768px) {
-      .nav { padding: 0 20px; }
+      .nav { padding: 0 16px; height: 64px; }
       .nav-links .nav-link { display: none; }
-      .hero { padding: 100px 20px 60px; }
+      .nav-btn { padding: 8px 14px; font-size: 13px; }
+      .nav-btn-solid { margin-left: 4px; }
+      .nav-brand img { width: 32px; height: 32px; }
+      .nav-brand-name { font-size: 16px; }
+
+      .hero { padding: 100px 20px 60px; min-height: auto; }
+      .hero-logo { padding: 20px 28px; margin-bottom: 32px; }
       .hero-logo img { height: 64px; }
-      .features, .how-it-works, .pricing, .cta-banner { padding: 60px 24px; }
-      .preview-section { padding: 40px 24px 0; }
-      .steps { flex-direction: column; gap: 32px; }
+      .hero h1 { font-size: 36px !important; }
+      .hero-sub { font-size: 16px; margin-bottom: 28px; }
+      .hero-ctas { flex-direction: column; gap: 12px; width: 100%; max-width: 320px; margin: 0 auto; }
+      .hero-ctas a { width: 100%; padding: 14px 24px; font-size: 16px; }
+      .hero-note { font-size: 12px; line-height: 1.6; }
+
+      .features, .how-it-works, .pricing, .cta-banner { padding: 60px 20px; }
+      .preview-section { padding: 50px 16px 0; }
+      .preview-title { font-size: 24px !important; margin-bottom: 28px; }
+      .preview-mockup { padding: 16px !important; border-radius: 14px 14px 0 0; }
+
+      /* Override inline grids inside score preview */
+      #preview-score > div:first-child {
+        grid-template-columns: 1fr !important;
+        padding: 16px !important;
+      }
+      #preview-score > div:first-child > div:first-child {
+        border-right: none !important;
+        border-bottom: 1px solid #f1f0fb !important;
+        padding-right: 0 !important;
+        padding-bottom: 14px !important;
+        margin-bottom: 14px !important;
+      }
+      #preview-score > div:first-child > div:last-child {
+        padding-left: 0 !important;
+      }
+      #preview-score > div:first-child > div:last-child > div:last-child {
+        grid-template-columns: repeat(2, 1fr) !important;
+      }
+
+      /* Override inline grid inside compare preview */
+      #preview-compare > div > div:nth-child(2) {
+        grid-template-columns: repeat(2, 1fr) !important;
+      }
+
+      /* Make activity-changes table horizontally scrollable */
+      #preview-changes table { min-width: 640px; }
+      #preview-changes > div { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+      /* Preview tabs wrap */
+      .prev-tab-btn { padding: 8px 14px; font-size: 12px; }
+
+      .features-grid { grid-template-columns: 1fr; gap: 16px; margin-top: 40px; }
+      .feature-card { padding: 24px; }
+
+      .steps { flex-direction: column; gap: 32px; margin-top: 40px; }
       .steps::before { display: none; }
-      .pricing-grid { grid-template-columns: 1fr; }
-      footer { flex-direction: column; gap: 20px; text-align: center; padding: 32px 24px; }
-      .footer-links { flex-wrap: wrap; justify-content: center; }
+      .step { padding: 0; }
+
+      .pricing-grid { grid-template-columns: 1fr; gap: 32px; margin-top: 40px; }
+      .pricing-card { padding: 28px 24px; }
+      .pricing-price { font-size: 42px; }
+
+      .section-title { font-size: 26px !important; }
+      .section-sub { font-size: 15px; }
+
+      .cta-banner h2 { font-size: 28px !important; }
+      .cta-banner p { font-size: 15px; }
+
+      footer { flex-direction: column; gap: 20px; text-align: center; padding: 32px 20px; }
+      .footer-links { flex-wrap: wrap; justify-content: center; gap: 16px; }
+    }
+
+    /* ── PHONE (≤ 480px) ── */
+    @media (max-width: 480px) {
+      .nav { padding: 0 12px; }
+      .nav-brand-name { font-size: 15px; }
+      .nav-btn { padding: 7px 11px; font-size: 12px; }
+      .nav-btn-outline { display: none; } /* hide Log In on tiny screens — Get Started covers both */
+
+      .hero { padding: 88px 16px 48px; }
+      .hero-eyebrow { font-size: 11px; padding: 5px 12px; margin-bottom: 20px; }
+      .hero-logo { padding: 16px 20px; margin-bottom: 24px; }
+      .hero-logo img { height: 52px; }
+      .hero h1 { font-size: 30px !important; line-height: 1.15; }
+      .hero-sub { font-size: 15px; line-height: 1.6; margin-bottom: 24px; }
+
+      .features, .how-it-works, .pricing, .cta-banner { padding: 50px 16px; }
+      .preview-section { padding: 40px 12px 0; }
+      .preview-mockup { padding: 12px !important; }
+
+      /* Score preview: collapse category cards to a single column on tiny screens */
+      #preview-score > div:first-child > div:last-child > div:last-child {
+        grid-template-columns: 1fr 1fr !important;
+        gap: 6px !important;
+      }
+
+      /* Compare preview: 1 column on phones */
+      #preview-compare > div > div:nth-child(2) {
+        grid-template-columns: 1fr !important;
+        gap: 8px !important;
+      }
+
+      /* Compress the overall-score footer bar in the compare preview */
+      #preview-compare > div > div:nth-child(3) {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 12px !important;
+      }
+
+      .feature-card { padding: 20px; }
+      .feature-icon { font-size: 30px; }
+      .feature-title { font-size: 17px; }
+
+      .pricing-card { padding: 24px 18px; }
+      .pricing-features li { font-size: 13px; }
+
+      .section-title { font-size: 22px !important; }
+      .cta-banner h2 { font-size: 24px !important; }
     }
 
     /* ── PREVIEW TABS ── */
