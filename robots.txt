@@ -1,0 +1,16 @@
+# Construct Check — robots.txt
+# Allow all search engines to crawl the public site
+
+User-agent: *
+Allow: /
+Disallow: /dashboard.html
+Disallow: /upload.html
+Disallow: /project.html
+Disallow: /diagnostics.html
+Disallow: /comparison.html
+Disallow: /learn.html
+Disallow: /login.html
+Disallow: /upgrade-success.html
+Disallow: /upgrade-cancel.html
+
+Sitemap: https://construct-check.vercel.app/sitemap.xml
