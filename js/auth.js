@@ -407,8 +407,35 @@
 
       // Show/hide the admin free-preview banner
       _renderPreviewBanner(user);
+
+      // Inject the Admin nav link in the sidebar (admin emails only)
+      _injectAdminNavLink(user);
     },
   };
+
+  // ── Admin nav link (injected into sidebar for admin emails only) ─
+  function _injectAdminNavLink(user) {
+    if (!user || !ADMIN_EMAILS.includes(user.email.toLowerCase())) return;
+    const nav = document.querySelector('.sidebar-nav');
+    if (!nav) return;
+    if (nav.querySelector('[data-admin-link]')) return;  // already injected
+
+    const link = document.createElement('a');
+    link.href = 'admin.html';
+    link.dataset.adminLink = '1';
+    link.innerHTML = `
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+        <path d="M2 17l10 5 10-5"/>
+        <path d="M2 12l10 5 10-5"/>
+      </svg>
+      Admin
+    `;
+    if (window.location.pathname.endsWith('admin.html')) {
+      link.classList.add('active');
+    }
+    nav.appendChild(link);
+  }
 
   // ── Admin free-preview banner ───────────────────────────────────
   function _renderPreviewBanner(user) {

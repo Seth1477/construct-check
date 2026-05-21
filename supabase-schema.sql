@@ -65,3 +65,44 @@ ALTER TABLE public.user_data
 CREATE INDEX IF NOT EXISTS idx_user_data_stripe_customer
   ON public.user_data (stripe_customer_id)
   WHERE stripe_customer_id IS NOT NULL;
+
+-- ============================================================
+-- Migration: Analytics events for admin dashboard
+-- Tracks page views, session start/end, and engagement.
+-- Run this in the Supabase SQL Editor.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.analytics_events (
+  id               bigserial    PRIMARY KEY,
+  user_id          uuid         REFERENCES auth.users(id) ON DELETE CASCADE,
+  event_type       text         NOT NULL,   -- 'page_view' | 'session_start' | 'session_end'
+  page             text,                    -- e.g. '/dashboard.html'
+  session_id       text,                    -- random uuid per browser session
+  duration_seconds integer,                 -- populated on session_end
+  metadata         jsonb,
+  created_at       timestamptz  NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_analytics_user
+  ON public.analytics_events (user_id);
+CREATE INDEX IF NOT EXISTS idx_analytics_created
+  ON public.analytics_events (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analytics_event_type
+  ON public.analytics_events (event_type);
+CREATE INDEX IF NOT EXISTS idx_analytics_session
+  ON public.analytics_events (session_id);
+
+ALTER TABLE public.analytics_events ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "users_insert_own_events" ON public.analytics_events;
+CREATE POLICY "users_insert_own_events" ON public.analytics_events
+  FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "users_read_own_events" ON public.analytics_events;
+CREATE POLICY "users_read_own_events" ON public.analytics_events
+  FOR SELECT TO authenticated
+  USING (auth.uid() = user_id);
+
+-- Note: the admin dashboard reads aggregated data via an Edge Function
+-- using the service-role key, which bypasses RLS automatically.

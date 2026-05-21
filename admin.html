@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Construct Check – Admin Analytics</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico"/>
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png"/>
+  <link rel="apple-touch-icon" href="img/logo-192.png"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/stripe-config.js"></script>
+  <script src="js/auth.js"></script>
+  <style>
+    .admin-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+    .admin-stat { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; }
+    .admin-stat-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+    .admin-stat-value { font-size: 28px; font-weight: 900; color: #1e1b4b; line-height: 1.1; }
+    .admin-stat-sub { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .admin-stat-value.green { color: #16a34a; }
+    .admin-stat-value.amber { color: #d97706; }
+    .admin-stat-value.purple { color: #7c6fe0; }
+    .admin-stat-value.red { color: #dc2626; }
+
+    .admin-panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px 22px; margin-bottom: 20px; }
+    .admin-panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 12px; }
+    .admin-panel-title { font-size: 15px; font-weight: 700; color: #1e1b4b; }
+
+    .admin-tabs { display: flex; gap: 4px; background: #f1f5f9; padding: 4px; border-radius: 8px; }
+    .admin-tab { padding: 6px 14px; border-radius: 6px; border: none; background: transparent; font-size: 12px; font-weight: 600; color: #64748b; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+    .admin-tab.active { background: #fff; color: #1e1b4b; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .admin-tab:hover:not(.active) { color: #1e1b4b; }
+
+    .admin-chart { height: 240px; position: relative; }
+    .admin-chart svg { width: 100%; height: 100%; }
+
+    .admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .admin-table th { text-align: left; padding: 10px 12px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
+    .admin-table td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+    .admin-table tr:hover td { background: #fafbfc; }
+    .admin-pill { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+    .admin-pill.free { background: #f1f5f9; color: #64748b; }
+    .admin-pill.trial { background: #fef3c7; color: #b45309; }
+    .admin-pill.pro { background: #ede9fe; color: #6d28d9; }
+    .admin-pill.churned { background: #fee2e2; color: #b91c1c; }
+
+    .admin-two-col { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; }
+    .admin-loading { text-align: center; padding: 80px 20px; color: #94a3b8; }
+    .admin-error { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 10px; padding: 16px 18px; font-size: 14px; font-weight: 600; }
+
+    @media (max-width: 900px) {
+      .admin-grid { grid-template-columns: repeat(2, 1fr); }
+      .admin-two-col { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 480px) {
+      .admin-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="app-layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <img src="img/logo.svg" alt="Construct Check" class="sidebar-logo-img"/>
+      <span class="logo-text">Construct<strong>Check</strong></span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="dashboard.html">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Projects
+      </a>
+      <a href="upload.html">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Upload Schedule
+      </a>
+      <a href="project.html">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 13h6M9 17h4"/></svg>
+        Dashboard
+      </a>
+      <a href="diagnostics.html">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        Diagnostics
+      </a>
+      <a href="comparison.html">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+        Comparison
+      </a>
+      <a href="learn.html">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
+        Learn
+      </a>
+      <a href="admin.html" class="active" data-admin-link="1">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        Admin
+      </a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="sidebar-user">
+        <div class="user-avatar" id="userAvatarInitial">–</div>
+        <div class="user-info">
+          <div class="user-name" data-auth-name>Loading…</div>
+          <div class="user-role" data-auth-plan>Free</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-content">
+
+    <div class="page-header mb-6">
+      <div>
+        <h1 class="page-title">Admin Analytics</h1>
+        <p class="page-subtitle">Real-time insight into signups, subscriptions, revenue, and engagement.</p>
+      </div>
+    </div>
+
+    <!-- Range selector -->
+    <div class="admin-panel" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;">
+      <div>
+        <span style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;margin-right:10px;">Time Range</span>
+        <div class="admin-tabs" id="rangeTabs" style="display:inline-flex">
+          <button class="admin-tab" data-range="day">24h</button>
+          <button class="admin-tab active" data-range="week">7 days</button>
+          <button class="admin-tab" data-range="month">30 days</button>
+          <button class="admin-tab" data-range="year">1 year</button>
+          <button class="admin-tab" data-range="all">All time</button>
+        </div>
+      </div>
+      <div>
+        <span style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;margin-right:10px;">Granularity</span>
+        <div class="admin-tabs" id="granTabs" style="display:inline-flex">
+          <button class="admin-tab active" data-gran="day">Daily</button>
+          <button class="admin-tab" data-gran="month">Monthly</button>
+          <button class="admin-tab" data-gran="year">Yearly</button>
+        </div>
+      </div>
+      <button id="refreshBtn" style="padding:8px 16px;border:1.5px solid #7c6fe0;background:#fff;color:#7c6fe0;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">
+        ↻ Refresh
+      </button>
+    </div>
+
+    <div id="adminContent">
+      <div class="admin-loading">Loading analytics…</div>
+    </div>
+
+  </main>
+</div>
+
+<script src="js/analytics.js"></script>
+<script>
+(function() {
+  const cfg = window.CC_STRIPE;
+  const FUNCTIONS_URL = (cfg && cfg.functionsUrl) || '';
+
+  let currentRange = 'week';
+  let currentGran  = 'day';
+
+  function fmtSec(s) {
+    if (!s || s < 60) return (s||0) + 's';
+    if (s < 3600) return Math.round(s/60) + 'm';
+    return (s/3600).toFixed(1) + 'h';
+  }
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function fmtUsd(n) { return '$' + (n || 0).toLocaleString('en-US'); }
+
+  function renderChart(containerId, data, color) {
+    const c = document.getElementById(containerId);
+    if (!data || data.length === 0) {
+      c.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:13px;">No data in this range yet.</div>';
+      return;
+    }
+    const W = 800, H = 240, PAD = 30;
+    const max = Math.max(1, ...data.map(d => d.count));
+    const stepX = (W - PAD*2) / Math.max(1, data.length - 1);
+    const points = data.map((d, i) => [PAD + i*stepX, H - PAD - (d.count / max) * (H - PAD*2)]);
+    const path = points.map((p,i) => (i===0?'M':'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+    const area = path + ` L${(PAD + (data.length-1)*stepX).toFixed(1)},${H-PAD} L${PAD},${H-PAD} Z`;
+    const dots = points.map((p,i) => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" fill="${color}"/><title>${data[i].bucket}: ${data[i].count}</title>`).join('');
+    const gridY = [0, 0.25, 0.5, 0.75, 1].map(t => {
+      const y = H - PAD - t*(H-PAD*2);
+      const v = Math.round(max * t);
+      return `<line x1="${PAD}" y1="${y}" x2="${W-PAD/2}" y2="${y}" stroke="#f1f5f9" stroke-width="1"/><text x="${PAD-6}" y="${y+3}" font-size="9" fill="#94a3b8" text-anchor="end">${v}</text>`;
+    }).join('');
+    const firstLabel = data[0]?.bucket || '';
+    const lastLabel  = data[data.length-1]?.bucket || '';
+    c.innerHTML = `
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        ${gridY}
+        <path d="${area}" fill="${color}22" stroke="none"/>
+        <path d="${path}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>
+        ${dots}
+        <text x="${PAD}" y="${H-8}" font-size="10" fill="#94a3b8">${firstLabel}</text>
+        <text x="${W-PAD/2}" y="${H-8}" font-size="10" fill="#94a3b8" text-anchor="end">${lastLabel}</text>
+      </svg>
+    `;
+  }
+
+  function render(d) {
+    const s = d.summary;
+    const out = document.getElementById('adminContent');
+    out.innerHTML = `
+      <!-- Summary stats -->
+      <div class="admin-grid">
+        <div class="admin-stat">
+          <div class="admin-stat-label">Total Users</div>
+          <div class="admin-stat-value">${s.total_users}</div>
+          <div class="admin-stat-sub">${s.free_count} free · ${s.trial_count} trial · ${s.pro_count} pro</div>
+        </div>
+        <div class="admin-stat">
+          <div class="admin-stat-label">Monthly Recurring Revenue</div>
+          <div class="admin-stat-value green">${fmtUsd(s.mrr_usd)}</div>
+          <div class="admin-stat-sub">${fmtUsd(s.arr_usd)} ARR · ${s.pro_count} active subs</div>
+        </div>
+        <div class="admin-stat">
+          <div class="admin-stat-label">Trial → Paid Conversion</div>
+          <div class="admin-stat-value purple">${s.conversion_rate}%</div>
+          <div class="admin-stat-sub">${s.churned_count} churned</div>
+        </div>
+        <div class="admin-stat">
+          <div class="admin-stat-label">Page Views (in range)</div>
+          <div class="admin-stat-value">${s.page_views.toLocaleString()}</div>
+          <div class="admin-stat-sub">${s.total_sessions} sessions · ${fmtSec(s.avg_session_sec)} avg</div>
+        </div>
+      </div>
+
+      <!-- Engagement stats -->
+      <div class="admin-grid">
+        <div class="admin-stat">
+          <div class="admin-stat-label">Daily Active Users (24h)</div>
+          <div class="admin-stat-value amber">${s.dau}</div>
+        </div>
+        <div class="admin-stat">
+          <div class="admin-stat-label">Weekly Active Users</div>
+          <div class="admin-stat-value amber">${s.wau}</div>
+        </div>
+        <div class="admin-stat">
+          <div class="admin-stat-label">Monthly Active Users</div>
+          <div class="admin-stat-value amber">${s.mau}</div>
+        </div>
+        <div class="admin-stat">
+          <div class="admin-stat-label">Total Time Spent</div>
+          <div class="admin-stat-value">${fmtSec(s.total_time_sec)}</div>
+          <div class="admin-stat-sub">Across all sessions</div>
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="admin-two-col">
+        <div class="admin-panel">
+          <div class="admin-panel-head">
+            <div class="admin-panel-title">Signups Over Time</div>
+            <div style="font-size:11px;color:#94a3b8;">${d.range} · ${d.granularity}</div>
+          </div>
+          <div class="admin-chart" id="signupChart"></div>
+        </div>
+        <div class="admin-panel">
+          <div class="admin-panel-head">
+            <div class="admin-panel-title">Page Views Over Time</div>
+            <div style="font-size:11px;color:#94a3b8;">${d.range} · ${d.granularity}</div>
+          </div>
+          <div class="admin-chart" id="pageviewChart"></div>
+        </div>
+      </div>
+
+      <!-- Top pages + recent users -->
+      <div class="admin-two-col">
+        <div class="admin-panel">
+          <div class="admin-panel-head">
+            <div class="admin-panel-title">Top Pages</div>
+          </div>
+          ${d.top_pages.length === 0 ? '<div style="color:#94a3b8;font-size:13px;text-align:center;padding:30px 0;">No page views in this range yet.</div>' : `
+          <table class="admin-table">
+            <thead><tr><th>Page</th><th style="text-align:right;">Views</th><th style="text-align:right;">Share</th></tr></thead>
+            <tbody>
+              ${(() => {
+                const total = d.top_pages.reduce((s,p) => s+p.count, 0);
+                return d.top_pages.map(p => {
+                  const pct = total > 0 ? Math.round(p.count/total*100) : 0;
+                  return `<tr>
+                    <td>${p.page}</td>
+                    <td style="text-align:right;font-weight:700;">${p.count}</td>
+                    <td style="text-align:right;color:#64748b;">${pct}%</td>
+                  </tr>`;
+                }).join('');
+              })()}
+            </tbody>
+          </table>`}
+        </div>
+
+        <div class="admin-panel">
+          <div class="admin-panel-head">
+            <div class="admin-panel-title">Recent Signups</div>
+          </div>
+          ${d.recent_signups.length === 0 ? '<div style="color:#94a3b8;font-size:13px;text-align:center;padding:30px 0;">No signups yet.</div>' : `
+          <table class="admin-table">
+            <thead><tr><th>Email</th><th>Signed Up</th><th>Plan</th></tr></thead>
+            <tbody>
+              ${d.recent_signups.map(u => {
+                let pill = '<span class="admin-pill free">Free</span>';
+                if (u.plan === 'pro' && (u.status === 'active' || u.status === 'trialing')) pill = '<span class="admin-pill pro">Pro</span>';
+                else if (u.status === 'canceled' || u.status === 'past_due') pill = '<span class="admin-pill churned">Churned</span>';
+                else {
+                  const ageMs = Date.now() - +new Date(u.signed_up);
+                  if (ageMs < 7*24*60*60*1000) pill = '<span class="admin-pill trial">Trial</span>';
+                }
+                return `<tr>
+                  <td style="font-size:12px;color:#1e293b;">${u.email}</td>
+                  <td style="font-size:12px;color:#64748b;">${fmtDate(u.signed_up)}</td>
+                  <td>${pill}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>`}
+        </div>
+      </div>
+
+      <div style="text-align:right;font-size:11px;color:#94a3b8;margin-top:12px;">
+        Generated ${new Date(d.generated_at).toLocaleString()} · auto-refreshes when you change range
+      </div>
+    `;
+
+    renderChart('signupChart',   d.signup_chart,   '#7c6fe0');
+    renderChart('pageviewChart', d.pageview_chart, '#06b6d4');
+  }
+
+  async function load() {
+    const out = document.getElementById('adminContent');
+    out.innerHTML = '<div class="admin-loading">Loading analytics…</div>';
+
+    if (!FUNCTIONS_URL) {
+      out.innerHTML = '<div class="admin-error">⚠️ Stripe/Supabase functions URL is not configured. Check js/stripe-config.js.</div>';
+      return;
+    }
+
+    try {
+      const { data: sessionData } = await CC_SB.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) throw new Error('Not signed in');
+
+      const url = `${FUNCTIONS_URL}/admin-analytics?range=${currentRange}&granularity=${currentGran}`;
+      const resp = await fetch(url, {
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Failed to load');
+      render(data);
+    } catch (err) {
+      console.error('[admin-analytics]', err);
+      out.innerHTML = `<div class="admin-error">Could not load analytics: ${err.message}<br><br>If you just deployed, the Edge Function may need to be deployed. See deployment notes.</div>`;
+    }
+  }
+
+  // Wire range/granularity tabs
+  document.getElementById('rangeTabs').addEventListener('click', e => {
+    const btn = e.target.closest('[data-range]'); if (!btn) return;
+    document.querySelectorAll('#rangeTabs .admin-tab').forEach(b => b.classList.toggle('active', b === btn));
+    currentRange = btn.dataset.range;
+    load();
+  });
+  document.getElementById('granTabs').addEventListener('click', e => {
+    const btn = e.target.closest('[data-gran]'); if (!btn) return;
+    document.querySelectorAll('#granTabs .admin-tab').forEach(b => b.classList.toggle('active', b === btn));
+    currentGran = btn.dataset.gran;
+    load();
+  });
+  document.getElementById('refreshBtn').addEventListener('click', load);
+
+  // Admin guard + initial load
+  (async function init() {
+    await CC.Auth.requireAuth();
+    const user = CC.Auth.currentUser();
+    const ADMINS = ['speterson1477@gmail.com'];
+    if (!user || !ADMINS.includes(user.email.toLowerCase())) {
+      document.querySelector('.main-content').innerHTML =
+        '<div style="padding:80px 20px;text-align:center;"><h1 style="color:#dc2626;font-size:28px;margin-bottom:10px;">403 — Admin Only</h1><p style="color:#64748b;">This page is restricted to administrators.</p><p style="margin-top:24px;"><a href="dashboard.html" style="color:#7c6fe0;font-weight:700;text-decoration:none;">← Return to dashboard</a></p></div>';
+      return;
+    }
+    CC.Auth.renderUserState();
+    load();
+  })();
+})();
+</script>
+<script src="js/feedback-widget.js"></script>
+</body>
+</html>
